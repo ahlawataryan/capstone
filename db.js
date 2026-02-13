@@ -23,11 +23,12 @@ function createTable(db) {
   const createTableSql = `
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TINYTEXT UNIQUE NOT NULL,
-      email TINYTEXT UNIQUE NOT NULL,
-      password TINYTEXT NOT NULL,
-      accountType ENUM(Admin, Client, Student)
+      username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      accountType TEXT NOT NULL CHECK(accountType IN ('Admin','Client','Student'))
     );
+
   `;
 
   db.run(createTableSql, (err) => {
