@@ -1,54 +1,74 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import {
-  getRoleForEmail,
-  getSignupRole,
-  setRoleForEmail,
-  clearSignupRole,
-} from "../providers/roleStore";
+import { supabase } from "../supabaseconfig";
+
+const ADMIN_EMAILS = ["test@uwm.edu"];
 
 export default function PostLoginRedirect() {
   const navigate = useNavigate();
   const { user, isAuthenticated, isLoading } = useAuth0();
 
-  // ✅ Permanent admin(s) by email
-  const ADMIN_EMAILS = ["test@uwm.edu"]; // add more if needed
-
   useEffect(() => {
-    if (isLoading) return;
-    if (!isAuthenticated) return;
+    if (isLoading || !isAuthenticated) return;
 
     const email = (user?.email || "").toLowerCase();
 
-    // ✅ If admin email, always go to admin dashboard
-    if (email && ADMIN_EMAILS.includes(email)) {
-      navigate("/admin", { replace: true });
-      return;
-    }
-
-    // if no email, default to client dashboard
     if (!email) {
       navigate("/client/dashboard", { replace: true });
       return;
     }
 
-    // 1) existing role for this email?
-    let role = getRoleForEmail(email);
-
-    // 2) if first time right after signup, use signup_role and persist it
-    if (!role) {
-      const signupRole = getSignupRole();
-      if (signupRole === "student" || signupRole === "client") {
-        role = signupRole;
-        setRoleForEmail(email, role);
-        clearSignupRole();
-      }
+    if (ADMIN_EMAILS.includes(email)) {
+      navigate("/admin", { replace: true });
+      return;
     }
 
-    // 3) route based on role (default client)
-    if (role === "student") navigate("/student/dashboard", { replace: true });
-    else navigate("/client/dashboard", { replace: true });
+    const fetchRoleAndRedirect = async () => {
+      try {
+        // Check if user already exists in Supabase
+        const { data: existing, error: fetchError } = await supabase
+          .from("users")
+          .select("role")
+          .eq("email", email)
+          .single();
+
+        if (fetchError && fetchError.code !== "PGRST116") throw fetchError;
+
+        if (existing) {
+          // User exists — route by their stored role
+          switch (existing.role) {
+            case "admin":   return navigate("/admin", { replace: true });
+            case "student": return navigate("/student/dashboard", { replace: true });
+            default:        return navigate("/client/dashboard", { replace: true });
+          }
+        } else {
+          // First time login — insert user with signup role from localStorage
+          const signupRole = localStorage.getItem("signup_role");
+          const role = signupRole === "student" ? "student" : "customer";
+          localStorage.removeItem("signup_role");
+
+          const { error: insertError } = await supabase
+            .from("users")
+            .insert({
+              email,
+              role,
+              first_name: user.given_name || "",
+              last_name: user.family_name || "",
+            });
+
+          if (insertError) throw insertError;
+
+          if (role === "student") navigate("/student/dashboard", { replace: true });
+          else navigate("/client/dashboard", { replace: true });
+        }
+      } catch (err) {
+        console.error("PostLoginRedirect error:", err);
+        navigate("/client/dashboard", { replace: true });
+      }
+    };
+
+    fetchRoleAndRedirect();
   }, [isLoading, isAuthenticated, user, navigate]);
 
   return <div className="container py-4">Redirecting...</div>;
