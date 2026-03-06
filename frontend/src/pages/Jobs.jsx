@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { supabase } from "../supabaseconfig";
-import JobListings from "../components/JobListings";
-import SkillListings from "../components/SkillListings";
 import Navbar from "../components/Navbar";
+import JobListings from "../components/Jobs/JobListings.jsx";
+import SkillListings from "../components/Jobs/SkillListings.jsx";
+import { supabase } from "../supabaseconfig.js";
 
 export default function Jobs() {
   const { user } = useAuth0();
