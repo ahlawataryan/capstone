@@ -19,25 +19,16 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        /*
-        Gets all users and attempts to use a filter to limit the number. Only filters self
-        May want to implement a getManyUsers function in the future
-        Best option is to only be able to message from bookings
-        Does not provide an in app error
-        */
-        const { data, error } = await getAllUsers();
-        if (error) throw error;
-        setUsers((data || []).filter((u) => u.user_id !== dbUser.user_id));
-      } catch (err) {
-        console.error("Failed to fetch users:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchUsers();
+    /*
+    Gets all users and attempts to use a filter to limit the number. Only filters self
+    May want to implement a getManyUsers function in the future
+    Best option is to only be able to message from bookings
+    Does not provide an in app error
+    */
+    getAllUsers().then(({ data, error }) => {
+      if (!error) setUsers((data || []).filter((u) => u.user_id !== dbUser.user_id));
+      setLoading(false);
+    });
   }, [dbUser]);
 
   const handleStart = async () => {
@@ -59,15 +50,11 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
         senderUserId: dbUser.user_id,
         body: firstMessage.trim(),
       });
-      
+
       if (msgError) throw msgError;
 
       // Notify the recipient
-      await createNotification({
-        userId: parseInt(selectedUser),
-        type: "message",
-        message: `${dbUser.first_name || "Someone"} sent you a new message`,
-      });
+      await createNotification({ userId: parseInt(selectedUser), type: "message" });
 
       onCreated(convo);
     } catch (err) {
@@ -79,17 +66,13 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
   };
 
   return (
-    <div
-      className="modal fade show"
-      style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-    >
+    <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
       <div className="modal-dialog modal-dialog-centered">
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title">New Message</h5>
             <button type="button" className="btn-close" onClick={onClose} />
           </div>
-
           <div className="modal-body">
             {loading ? (
               <p>Loading users...</p>
@@ -97,11 +80,7 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
               <>
                 <div className="mb-3">
                   <label className="form-label">Send to</label>
-                  <select
-                    className="form-select"
-                    value={selectedUser}
-                    onChange={(e) => setSelectedUser(e.target.value)}
-                  >
+                  <select className="form-select" value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)}>
                     <option value="">Select a user...</option>
                     {users.map((u) => (
                       <option key={u.user_id} value={u.user_id}>
@@ -123,11 +102,8 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
               </>
             )}
           </div>
-
           <div className="modal-footer">
-            <button className="btn btn-outline-secondary" onClick={onClose}>
-              Cancel
-            </button>
+            <button className="btn btn-outline-secondary" onClick={onClose}>Cancel</button>
             <button
               className="btn btn-primary"
               disabled={!selectedUser || !firstMessage.trim() || sending}

@@ -150,7 +150,6 @@ export default function Bookings() {
           await createNotification({
             userId: req.customer_id,
             type: "booking_accepted",
-            message: `Your booking request for "${req.listings?.title}" has been accepted! Check your bookings.`,
           });
         }
       }
@@ -160,7 +159,6 @@ export default function Bookings() {
         await createNotification({
           userId: req.customer_id,
           type: "booking_declined",
-          message: `Your booking request for "${req.listings?.title}" was declined.`,
         });
       }
 
@@ -212,7 +210,6 @@ export default function Bookings() {
         await createNotification({
           userId: recipientId,
           type: "booking_cancelled",
-          message: `Your booking for "${cancelModal.listings?.title}" has been cancelled. Check your messages for details.`,
         });
       }
 

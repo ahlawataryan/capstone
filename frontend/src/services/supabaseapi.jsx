@@ -235,19 +235,6 @@ export async function getStudentsBySkillId(skillId) {
 // LISTINGS  (student service listings)
 // ─────────────────────────────────────────────────
 
-/** Get all active listings, newest first. Good for the client "browse" page. */
-export async function getActiveListings() {
-  return await supabase
-    .from("listings")
-    .select(`
-      listing_id, title, description, status, location_text, pricing_type, price_amount, created_at, student_id, 
-      users!listings_student_id_fkey(user_id, first_name, last_name, email, phone, bio), 
-      listingsskills(skills(skill_id, name))
-    `)
-    .eq("status", "active")
-    .order("created_at", { ascending: false });
-}
-
 /**
  * Get active listings excluding those with a confirmed booking.
  * Fetches listing IDs that have confirmed bookings, then excludes them.
@@ -278,11 +265,21 @@ export async function getAvailableListings() {
   return await query;
 }
 
+/** Original — kept for any code still importing it. */
+export async function getActiveListings() {
+  return getAvailableListings();
+}
+
 /** Get all listings created by a specific student. */
 export async function getListingsByStudent(studentId) {
   return await supabase
     .from("listings")
-    .select("*")
+    .select(`
+      listing_id, title, description, status, location_text,
+      pricing_type, price_amount, created_at, student_id,
+      listingsskills(skills(skill_id, name)),
+      bookings(bookings_id, status)
+    `)
     .eq("student_id", studentId)
     .order("created_at", { ascending: false });
 }
@@ -718,37 +715,33 @@ export async function getConversationsForUser(userId) {
 // ─────────────────────────────────────────────────
 // NOTIFICATIONS
 // ─────────────────────────────────────────────────
-
-/** Get all notifications for a user (latest first). */
+ 
+/**
+Fetch all notifications for a user (newest first, max 50).
+Only selects the columns that actually exist in the table.
+*/
 export async function getNotificationsForUser(userId) {
   return await supabase
     .from("notifications")
-    .select("*")
+    .select("notification_id, user_id, type, channel, status, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(50);
 }
-
-/** Get unread notification count for a user. */
-export async function getUnreadNotificationCount(userId) {
-  return await supabase
-    .from("notifications")
-    .select("notification_id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("status", "unread");
-}
-
-/** Mark a single notification as read. */
+ 
+/**
+ Mark one notification as read.
+ */
 export async function markNotificationRead(notificationId) {
   return await supabase
     .from("notifications")
     .update({ status: "read" })
-    .eq("notification_id", notificationId)
-    .select()
-    .single();
+    .eq("notification_id", notificationId);
 }
-
-/** Mark all notifications as read for a user. */
+ 
+/**
+Mark every unread notification as read for a user.
+*/
 export async function markAllNotificationsRead(userId) {
   return await supabase
     .from("notifications")
@@ -756,22 +749,35 @@ export async function markAllNotificationsRead(userId) {
     .eq("user_id", userId)
     .eq("status", "unread");
 }
-
+ 
 /**
- * Create a notification for a user.
- * type: "message" | "booking_request" | "booking_update" | "booking_accepted" | "booking_declined" | "booking_cancelled"
- * channel: "in_app"
- */
-export async function createNotification({ userId, type, channel = "in_app", message }) {
-  return await supabase
-    .from("notifications")
-    .insert({
-      user_id: userId,
-      type,
-      channel,
-      status: "unread",
-      message,
-    })
-    .select()
-    .single();
+Create a notification.
+Only inserts columns that exist: user_id, type, channel, status.
+type values:
+  "message" | "booking_request" | "booking_accepted" |
+  "booking_declined" | "booking_cancelled" | "booking_update"
+Errors are logged but never thrown — notifications are non-critical.
+*/
+export async function createNotification({ userId, type }) {
+  if (!userId || !type) return { data: null, error: null };
+  try {
+    const { data, error } = await supabase
+      .from("notifications")
+      .insert({
+        user_id: userId,
+        type,
+        channel: "in_app",
+        status: "unread",
+      })
+      .select("notification_id")
+      .single();
+    if (error) {
+      console.warn("[createNotification] non-fatal error:", error.message);
+      return { data: null, error };
+    }
+    return { data, error: null };
+  } catch (err) {
+    console.warn("[createNotification] non-fatal exception:", err);
+    return { data: null, error: err };
+  }
 }

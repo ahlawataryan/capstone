@@ -1,7 +1,8 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { getUserByEmail, insertUser, ensureUserExists } from "./services/supabaseapi";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { supabase } from "./supabaseconfig";
+import { setRoleForEmail } from "./providers/roleStore";
 
 import Login from "./pages/login";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -37,44 +38,77 @@ function RequireAuth({ children }) {
 //App function that returns whatever assets should be loaded
 export default function App() {
   const { error, isAuthenticated, isLoading, user } = useAuth0();
+  const syncedRef = useRef(false);
 
   useEffect(() => {
+    // Guard: only run once per authenticated session
+    if (isLoading || !isAuthenticated || !user?.email) return;
+    if (syncedRef.current) return;
+    syncedRef.current = true;
+
     const syncUser = async () => {
-      if (isLoading || !isAuthenticated || !user?.email) return;
+      const email = user.email.toLowerCase();
+      const savedRole = localStorage.getItem("signup_role");
 
-      //This wasn't working because the userServices only returns the data part. Needed to
-      //update the checks accordingly
-      const {existingUserData, existingUserError} = await getUserByEmail(user.email);
-      const savedRole = localStorage.getItem("signup_role") || "student";
+      try {
+        // 1. Check if the user already exists
+        const { data: existing, error: fetchError } = await supabase
+          .from("users")
+          .select("user_id, email, role")
+          .eq("email", email)
+          .maybeSingle(); // returns null (not error) when not found
 
-      console.log("signup_role from localStorage:", savedRole);
-    /*
-      if (!existingUser) {
-        await createUser({
-          email: user.email,
-          first_name: user.given_name || "",
-          last_name: user.family_name || "",
-          role: savedRole || "client",
-        });
+        if (fetchError) {
+          console.error("Error checking for existing user:", fetchError);
+          return;
+        }
+
+        if (existing) {
+          // User already exists — store role locally and stop
+          if (existing.role) {
+            setRoleForEmail(email, existing.role);
+          }
+          localStorage.removeItem("signup_role");
+          return;
+        }
+
+        // 2. User doesn't exist — insert them
+        const role = savedRole || "client";
+        const { error: insertError } = await supabase
+          .from("users")
+          .insert({
+            email,
+            role,
+            first_name: user.given_name || "",
+            last_name:  user.family_name || "",
+          });
+
+        if (insertError) {
+          // 409 can still happen in a race condition (two tabs) — treat as non-fatal
+          if (insertError.code === "23505") {
+            console.warn("User already exists (race condition), skipping insert.");
+          } else {
+            console.error("Failed to insert user:", insertError);
+          }
+        } else {
+          setRoleForEmail(email, role);
+        }
+      } catch (err) {
+        console.error("Unexpected error during user sync:", err);
+      } finally {
+        localStorage.removeItem("signup_role");
       }
-    */
-     
-     if (!existingUserData) {
-        await insertUser({
-          email: user.email,
-          role: savedRole || "client",
-          first_name: user.given_name || "",
-          last_name: user.family_name || "",
-          phone: "0000000000",
-          bio: "",
-        });
-      }
-      
-      localStorage.removeItem("signup_role");
     };
 
     syncUser();
   }, [user, isAuthenticated, isLoading]);
+
+  // Reset the sync guard when the user logs out
+  useEffect(() => {
+    if (!isAuthenticated) {
+      syncedRef.current = false;
+    }
+  }, [isAuthenticated]);
 
   return (
     <>
@@ -185,7 +219,9 @@ export default function App() {
         <Route
           path="*"
           element={
-            isAuthenticated ? <Navigate to="/post-login" replace /> : <Navigate to="/" replace />
+            isAuthenticated
+              ? <Navigate to="/post-login" replace />
+              : <Navigate to="/" replace />
           }
         />
       </Routes>

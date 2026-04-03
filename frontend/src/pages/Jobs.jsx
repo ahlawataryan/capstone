@@ -231,7 +231,6 @@ export default function Jobs() {
         await createNotification({
           userId: studentUserId,
           type: "booking_request",
-          message: `${dbUser.first_name || "A client"} sent a hire request for "${hireModal.title}"`,
         });
       }
 
@@ -282,7 +281,6 @@ export default function Jobs() {
       await createNotification({
         userId: recipientId,
         type: "message",
-        message: `${dbUser.first_name || "Someone"} sent you a message about "${messageModal.title}"`,
       });
 
       alert("Message sent!");

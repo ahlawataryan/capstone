@@ -22,7 +22,7 @@ export default function ConversationView({ dbUser, conversation }) {
     setLoading(true);
     fetchMessages();
 
-    // Subscribe to new messages in real time
+        // Subscribe to new messages in real time
     const channel = supabase
       .channel(`conversation-${conversation.conversation_id}`)
       .on("postgres_changes", {
@@ -70,16 +70,14 @@ export default function ConversationView({ dbUser, conversation }) {
     const body = newMessage.trim();
     const optimisticId = `optimistic-${Date.now()}`;
 
-    const optimisticMsg = {
+    setMessages((prev) => [...prev, {
       message_id: optimisticId,
       conversation_id: conversation.conversation_id,
       sender_user_id: dbUser.user_id,
       body,
       sent_at: new Date().toISOString(),
       _optimistic: true,
-    };
-
-    setMessages((prev) => [...prev, optimisticMsg]);
+    }]);
     setNewMessage("");
     setSending(true);
 
@@ -103,11 +101,7 @@ export default function ConversationView({ dbUser, conversation }) {
           : conversation.initiator_user_id;
 
       if (recipientId && recipientId !== dbUser.user_id) {
-        await createNotification({
-          userId: recipientId,
-          type: "message",
-          message: `${dbUser.first_name || "Someone"} sent you a new message`,
-        });
+        await createNotification({ userId: recipientId, type: "message" });
       }
     } catch (err) {
       console.error("Failed to send message:", err);
@@ -155,7 +149,7 @@ export default function ConversationView({ dbUser, conversation }) {
         )}
         <div ref={bottomRef} />
       </div>
-
+      
       {/* Input */}
       <div className="card-footer d-flex gap-2">
         <textarea

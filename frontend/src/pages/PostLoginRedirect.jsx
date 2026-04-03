@@ -12,18 +12,19 @@ Sign up automatically leads to login, so auth0 covers both
 
 Basic account information uses localStorage. Functions can be found in roleStore.js
 */
+const ADMIN_EMAILS = ["test@uwm.edu"];
+
 export default function PostLoginRedirect() {
   const navigate = useNavigate();
   const { user, isAuthenticated, isLoading } = useAuth0();
 
-  const ADMIN_EMAILS = ["test@uwm.edu"];//While not a password, is still somewhat risky
-
   useEffect(() => {
-    const redirectUser = async () => {
-      if (isLoading || !isAuthenticated) return;
+    if (isLoading || !isAuthenticated) return;
 
+    const redirectUser = async () => {
       const email = (user?.email || "").toLowerCase();
 
+      // Hard-coded admin override
       if (email && ADMIN_EMAILS.includes(email)) {
         navigate("/admin", { replace: true });
         return;
@@ -35,40 +36,30 @@ export default function PostLoginRedirect() {
       }
 
       try {
+        // getUserByEmail now uses .maybeSingle() — data is null when not found
         const { data, error } = await getUserByEmail(email);
 
         if (!error && data?.role) {
-          setRoleForEmail(email, data.role);//localStorage set role
+          setRoleForEmail(email, data.role);
 
-          if (data.role === "student") {
-            navigate("/student/dashboard", { replace: true });
-            return;
-          }
-
-          if (data.role === "client") {
-            navigate("/client/dashboard", { replace: true });
-            return;
-          }
-
-          if (data.role === "admin") {
-            navigate("/admin", { replace: true });
-            return;
+          switch (data.role) {
+            case "student": navigate("/student/dashboard", { replace: true }); return;
+            case "client":  navigate("/client/dashboard",  { replace: true }); return;
+            case "admin":   navigate("/admin",              { replace: true }); return;
           }
         }
       } catch (err) {
-        console.error("Failed to fetch role from database:", err);
+        console.error("PostLoginRedirect: failed to fetch role:", err);
       }
 
+      // Fallback: use signup_role that was set before Auth0 redirect
       const signupRole = getSignupRole();
       if (signupRole === "student" || signupRole === "client") {
         setRoleForEmail(email, signupRole);
-
-        if (signupRole === "student") {
-          navigate("/student/dashboard", { replace: true });
-          return;
-        }
-
-        navigate("/client/dashboard", { replace: true });
+        navigate(
+          signupRole === "student" ? "/student/dashboard" : "/client/dashboard",
+          { replace: true }
+        );
         return;
       }
 
@@ -78,5 +69,5 @@ export default function PostLoginRedirect() {
     redirectUser();
   }, [isLoading, isAuthenticated, user, navigate]);
 
-  return <div className="container py-4">Redirecting...</div>;
+  return <div className="container py-4">Redirecting…</div>;
 }
