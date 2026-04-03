@@ -60,7 +60,7 @@ export async function getUserByEmail(email) {
     .from("users")
     .select("*")
     .eq("email", email)
-    .single();
+    .maybeSingle();
 }
 
 /** Fetch a single user by their numeric user_id. */
@@ -114,6 +114,33 @@ export async function insertUser({ email, role, first_name, last_name, phone, bi
     .select()
     .single();
 }
+
+export const ensureUserExists = async (email, role) => {
+/** Try to fetch existing user */
+  const { data: existing, error: fetchError } = await supabase
+    .from("users")
+    .select("*")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (fetchError) {
+    console.error("Fetch user error:", fetchError);
+  }
+
+  if (existing) return existing;
+
+/** Create user safely (prevents 409) */
+  const { data, error } = await supabase
+    .from("users")
+    .upsert([{email, role,},],{ onConflict: "email" })
+    .select()
+    .maybeSingle();
+  if (error) {
+    console.error("Upsert user error:", error);
+    return null;
+  }
+  return data;
+};
 
 /** Update specific profile fields for a user (by user_id). */
 export async function updateUserProfile(userId, fields) {
@@ -219,6 +246,36 @@ export async function getActiveListings() {
     `)
     .eq("status", "active")
     .order("created_at", { ascending: false });
+}
+
+/**
+ * Get active listings excluding those with a confirmed booking.
+ * Fetches listing IDs that have confirmed bookings, then excludes them.
+ */
+export async function getAvailableListings() {
+  // Get listing IDs that already have a confirmed/active booking
+  const { data: bookedListings } = await supabase
+    .from("bookings")
+    .select("listing_id")
+    .in("status", ["confirmed", "completed"]);
+
+  const bookedIds = (bookedListings || []).map(b => b.listing_id);
+
+  let query = supabase
+    .from("listings")
+    .select(`
+      listing_id, title, description, status, location_text, pricing_type, price_amount, created_at, student_id, 
+      users!listings_student_id_fkey(user_id, first_name, last_name), 
+      listingsskills(skills(skill_id, name))
+    `)
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  if (bookedIds.length > 0) {
+    query = query.not("listing_id", "in", `(${bookedIds.join(",")})`);
+  }
+
+  return await query;
 }
 
 /** Get all listings created by a specific student. */
@@ -656,4 +713,65 @@ export async function getConversationsForUser(userId) {
     `)
     .or(`initiator_user_id.eq.${userId},recipient_user_id.eq.${userId}`)
     .order("created_at", { ascending: false });
+}
+
+// ─────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────
+
+/** Get all notifications for a user (latest first). */
+export async function getNotificationsForUser(userId) {
+  return await supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+}
+
+/** Get unread notification count for a user. */
+export async function getUnreadNotificationCount(userId) {
+  return await supabase
+    .from("notifications")
+    .select("notification_id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("status", "unread");
+}
+
+/** Mark a single notification as read. */
+export async function markNotificationRead(notificationId) {
+  return await supabase
+    .from("notifications")
+    .update({ status: "read" })
+    .eq("notification_id", notificationId)
+    .select()
+    .single();
+}
+
+/** Mark all notifications as read for a user. */
+export async function markAllNotificationsRead(userId) {
+  return await supabase
+    .from("notifications")
+    .update({ status: "read" })
+    .eq("user_id", userId)
+    .eq("status", "unread");
+}
+
+/**
+ * Create a notification for a user.
+ * type: "message" | "booking_request" | "booking_update" | "booking_accepted" | "booking_declined" | "booking_cancelled"
+ * channel: "in_app"
+ */
+export async function createNotification({ userId, type, channel = "in_app", message }) {
+  return await supabase
+    .from("notifications")
+    .insert({
+      user_id: userId,
+      type,
+      channel,
+      status: "unread",
+      message,
+    })
+    .select()
+    .single();
 }

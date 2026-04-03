@@ -12,6 +12,7 @@ import {
   updateBookingStatus,
   createConversation,
   sendMessage,
+  createNotification,
 } from "../services/supabaseapi";
 /*
 Component to handle bookings. Very complicated
@@ -121,8 +122,9 @@ export default function Bookings() {
       const { error } = await updateBookingRequestStatus(requestId, status);
       if (error) throw error;
 
+      const req = receivedRequests.find((r) => r.request_id === requestId);
+
       if (status === "accepted") {
-        const req = receivedRequests.find(r => r.request_id === requestId);
         if (req) {
           let agreedPrice = req.listings?.price_amount ?? 0;
           try {
@@ -143,7 +145,23 @@ export default function Bookings() {
             agreed_price_amount: agreedPrice,
           });
           if (bookingError) throw bookingError;
+
+          // Notify the client that their request was accepted
+          await createNotification({
+            userId: req.customer_id,
+            type: "booking_accepted",
+            message: `Your booking request for "${req.listings?.title}" has been accepted! Check your bookings.`,
+          });
         }
+      }
+
+      if (status === "declined" && req) {
+        // Notify the client that their request was declined
+        await createNotification({
+          userId: req.customer_id,
+          type: "booking_declined",
+          message: `Your booking request for "${req.listings?.title}" was declined.`,
+        });
       }
 
       if (role === "student") await fetchStudentData(dbUser.user_id);
@@ -189,6 +207,13 @@ export default function Bookings() {
           body: `Your booking for "${cancelModal.listings?.title}" has been cancelled.\n\nReason: ${cancelReason.trim()}`,
         });
         if (msgError) throw msgError;
+
+        // Notify the other party
+        await createNotification({
+          userId: recipientId,
+          type: "booking_cancelled",
+          message: `Your booking for "${cancelModal.listings?.title}" has been cancelled. Check your messages for details.`,
+        });
       }
 
       setCancelModal(null);
@@ -207,7 +232,7 @@ export default function Bookings() {
     if (!dateStr) return "—";
     const localStr = dateStr.slice(0, 10).replace(/-/g, "/");
     return new Date(localStr).toLocaleDateString("en-US", {
-      month: "short", day: "numeric", year: "numeric"
+      month: "short", day: "numeric", year: "numeric",
     });
   };
 
@@ -219,14 +244,14 @@ export default function Bookings() {
   );
 
   const studentTabs = [
-    { key: "sent",     label: "Sent Requests",     count: sentRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").length },
-    { key: "received", label: "Received Requests",  count: receivedRequests.filter(r => r.status === "pending").length },
-    { key: "active",   label: "Active Bookings",    count: studentBookings.filter(b => b.status === "confirmed").length },
+    { key: "sent",     label: "Sent Requests",    count: sentRequests.filter((r) => r.status !== "cancelled" && r.status !== "accepted").length },
+    { key: "received", label: "Received Requests", count: receivedRequests.filter((r) => r.status === "pending").length },
+    { key: "active",   label: "Active Bookings",   count: studentBookings.filter((b) => b.status === "confirmed").length },
   ];
 
   const clientTabs = [
-    { key: "sent",   label: "Sent Requests",  count: clientSentRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").length },
-    { key: "active", label: "Active Bookings", count: clientBookings.filter(b => b.status === "confirmed").length },
+    { key: "sent",   label: "Sent Requests",   count: clientSentRequests.filter((r) => r.status !== "cancelled" && r.status !== "accepted").length },
+    { key: "active", label: "Active Bookings", count: clientBookings.filter((b) => b.status === "confirmed").length },
   ];
 
   const tabs = role === "student" ? studentTabs : clientTabs;
@@ -239,7 +264,7 @@ export default function Bookings() {
 
         {/* Tabs */}
         <ul className="nav nav-tabs mb-4">
-          {tabs.map(tab => (
+          {tabs.map((tab) => (
             <li className="nav-item" key={tab.key}>
               <button
                 className={`nav-link ${activeTab === tab.key ? "active" : ""}`}
@@ -260,51 +285,53 @@ export default function Bookings() {
             <h5 className="mb-3">
               {role === "student" ? "Hire requests you've sent" : "Booking requests you've sent"}
             </h5>
-            {(role === "student" ? sentRequests : clientSentRequests).filter(r => r.status !== "cancelled" && r.status !== "accepted").length === 0 ? (
+            {(role === "student" ? sentRequests : clientSentRequests).filter((r) => r.status !== "cancelled" && r.status !== "accepted").length === 0 ? (
               <p className="text-muted">No sent requests yet.</p>
             ) : (
               <div className="row g-3">
-                {(role === "student" ? sentRequests : clientSentRequests).filter(r => r.status !== "cancelled" && r.status !== "accepted").map(req => (
-                  <div className="col-md-6" key={req.request_id}>
-                    <div className="card h-100 shadow-sm">
-                      <div className="card-header d-flex justify-content-between align-items-center">
-                        <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
-                        <StatusBadge status={req.status} />
-                      </div>
-                      <div className="card-body">
-                        <p className="text-muted small mb-1">
-                          Student: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
-                        </p>
-                        {(() => {
-                          try {
-                            const parsed = JSON.parse(req.note || "{}");
-                            if (parsed.agreed_price != null) return (
-                              <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
-                            );
-                          } catch { /* show listing rate */ }
-                          return <p className="text-muted small mb-1">Listed Rate: ${req.listings?.price_amount}</p>;
-                        })()}
-                        <p className="text-muted small mb-1">
-                          Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
-                        </p>
-                        <p className="text-muted small mb-0">
-                          Sent: {formatDate(req.created_at)}
-                        </p>
-                      </div>
-                      {req.status === "pending" && (
-                        <div className="card-footer">
-                          <button
-                            className="btn btn-outline-danger btn-sm w-100"
-                            disabled={actionLoading === req.request_id + "cancelled"}
-                            onClick={() => handleAction(req.request_id, "cancelled")}
-                          >
-                            {actionLoading === req.request_id + "cancelled" ? "Cancelling..." : "Cancel Request"}
-                          </button>
+                {(role === "student" ? sentRequests : clientSentRequests)
+                  .filter((r) => r.status !== "cancelled" && r.status !== "accepted")
+                  .map((req) => (
+                    <div className="col-md-6" key={req.request_id}>
+                      <div className="card h-100 shadow-sm">
+                        <div className="card-header d-flex justify-content-between align-items-center">
+                          <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
+                          <StatusBadge status={req.status} />
                         </div>
-                      )}
+                        <div className="card-body">
+                          <p className="text-muted small mb-1">
+                            Student: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                          </p>
+                          {(() => {
+                            try {
+                              const parsed = JSON.parse(req.note || "{}");
+                              if (parsed.agreed_price != null) return (
+                                <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
+                              );
+                            } catch { /* show listing rate */ }
+                            return <p className="text-muted small mb-1">Listed Rate: ${req.listings?.price_amount}</p>;
+                          })()}
+                          <p className="text-muted small mb-1">
+                            Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
+                          </p>
+                          <p className="text-muted small mb-0">
+                            Sent: {formatDate(req.created_at)}
+                          </p>
+                        </div>
+                        {req.status === "pending" && (
+                          <div className="card-footer">
+                            <button
+                              className="btn btn-outline-danger btn-sm w-100"
+                              disabled={actionLoading === req.request_id + "cancelled"}
+                              onClick={() => handleAction(req.request_id, "cancelled")}
+                            >
+                              {actionLoading === req.request_id + "cancelled" ? "Cancelling..." : "Cancel Request"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             )}
           </div>
@@ -314,61 +341,63 @@ export default function Bookings() {
         {activeTab === "received" && role === "student" && (
           <div>
             <h5 className="mb-3">Hire requests sent to you</h5>
-            {receivedRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").length === 0 ? (
+            {receivedRequests.filter((r) => r.status !== "cancelled" && r.status !== "accepted").length === 0 ? (
               <p className="text-muted">No received requests yet.</p>
             ) : (
               <div className="row g-3">
-                {receivedRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").map(req => (
-                  <div className="col-md-6" key={req.request_id}>
-                    <div className="card h-100 shadow-sm">
-                      <div className="card-header d-flex justify-content-between align-items-center">
-                        <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
-                        <StatusBadge status={req.status} />
-                      </div>
-                      <div className="card-body">
-                        <p className="text-muted small mb-1">
-                          From: {req.users?.first_name} {req.users?.last_name}
-                        </p>
-                        {req.users?.email && (
-                          <p className="text-muted small mb-1">{req.users.email}</p>
-                        )}
-                        {(() => {
-                          try {
-                            const parsed = JSON.parse(req.note || "{}");
-                            if (parsed.agreed_price != null) return (
-                              <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
-                            );
-                          } catch { /* show nothing */ }
-                          return null;
-                        })()}
-                        <p className="text-muted small mb-1">
-                          Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
-                        </p>
-                        <p className="text-muted small mb-0">
-                          Received: {formatDate(req.created_at)}
-                        </p>
-                      </div>
-                      {req.status === "pending" && (
-                        <div className="card-footer d-flex gap-2">
-                          <button
-                            className="btn btn-success btn-sm flex-fill"
-                            disabled={!!actionLoading}
-                            onClick={() => handleAction(req.request_id, "accepted")}
-                          >
-                            {actionLoading === req.request_id + "accepted" ? "Accepting..." : "Accept"}
-                          </button>
-                          <button
-                            className="btn btn-outline-danger btn-sm flex-fill"
-                            disabled={!!actionLoading}
-                            onClick={() => handleAction(req.request_id, "declined")}
-                          >
-                            {actionLoading === req.request_id + "declined" ? "Declining..." : "Decline"}
-                          </button>
+                {receivedRequests
+                  .filter((r) => r.status !== "cancelled" && r.status !== "accepted")
+                  .map((req) => (
+                    <div className="col-md-6" key={req.request_id}>
+                      <div className="card h-100 shadow-sm">
+                        <div className="card-header d-flex justify-content-between align-items-center">
+                          <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
+                          <StatusBadge status={req.status} />
                         </div>
-                      )}
+                        <div className="card-body">
+                          <p className="text-muted small mb-1">
+                            From: {req.users?.first_name} {req.users?.last_name}
+                          </p>
+                          {req.users?.email && (
+                            <p className="text-muted small mb-1">{req.users.email}</p>
+                          )}
+                          {(() => {
+                            try {
+                              const parsed = JSON.parse(req.note || "{}");
+                              if (parsed.agreed_price != null) return (
+                                <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
+                              );
+                            } catch { /* show nothing */ }
+                            return null;
+                          })()}
+                          <p className="text-muted small mb-1">
+                            Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
+                          </p>
+                          <p className="text-muted small mb-0">
+                            Received: {formatDate(req.created_at)}
+                          </p>
+                        </div>
+                        {req.status === "pending" && (
+                          <div className="card-footer d-flex gap-2">
+                            <button
+                              className="btn btn-success btn-sm flex-fill"
+                              disabled={!!actionLoading}
+                              onClick={() => handleAction(req.request_id, "accepted")}
+                            >
+                              {actionLoading === req.request_id + "accepted" ? "Accepting..." : "Accept"}
+                            </button>
+                            <button
+                              className="btn btn-outline-danger btn-sm flex-fill"
+                              disabled={!!actionLoading}
+                              onClick={() => handleAction(req.request_id, "declined")}
+                            >
+                              {actionLoading === req.request_id + "declined" ? "Declining..." : "Decline"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             )}
           </div>
@@ -378,13 +407,13 @@ export default function Bookings() {
         {activeTab === "active" && (
           <div>
             <h5 className="mb-3">Active bookings</h5>
-            {(role === "student" ? studentBookings : clientBookings).filter(b => b.status === "confirmed").length === 0 ? (
+            {(role === "student" ? studentBookings : clientBookings).filter((b) => b.status === "confirmed").length === 0 ? (
               <p className="text-muted">No active bookings yet.</p>
             ) : (
               <div className="row g-3">
                 {(role === "student" ? studentBookings : clientBookings)
-                  .filter(b => b.status === "confirmed")
-                  .map(booking => (
+                  .filter((b) => b.status === "confirmed")
+                  .map((booking) => (
                     <div className="col-md-6" key={booking.bookings_id}>
                       <div className="card h-100 shadow-sm">
                         <div className="card-header d-flex justify-content-between align-items-center">
@@ -446,7 +475,7 @@ export default function Bookings() {
                     rows={4}
                     placeholder="Let the other person know why you're cancelling..."
                     value={cancelReason}
-                    onChange={e => setCancelReason(e.target.value)}
+                    onChange={(e) => setCancelReason(e.target.value)}
                   />
                   <p className="text-muted small mt-2 mb-0">
                     This message will be sent automatically to the other party.

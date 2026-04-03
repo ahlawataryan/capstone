@@ -7,6 +7,7 @@ import {
   Navbar as BsNavbar,
 } from "react-bootstrap";
 import { getRoleForEmail } from "../providers/roleStore";
+import NotificationBell from "./NotificationBell";
 
 export default function Navbar() {
   const { user, logout } = useAuth0();
@@ -84,6 +85,8 @@ export default function Navbar() {
             <span className="small text-muted d-none d-md-inline">
               {user?.email || user?.name}
             </span>
+
+            <NotificationBell />
 
             <Button as={Link} to="/profile" variant="primary" size="sm">
               Profile

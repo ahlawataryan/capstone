@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-//import { createUser, getUserByEmail } from "./services/userServices";
-import { getUserByEmail, insertUser } from "./services/supabaseapi";
+import { getUserByEmail, insertUser, ensureUserExists } from "./services/supabaseapi";
 import { useEffect } from "react";
 
 import Login from "./pages/login";
@@ -46,7 +45,7 @@ export default function App() {
       //This wasn't working because the userServices only returns the data part. Needed to
       //update the checks accordingly
       const {existingUserData, existingUserError} = await getUserByEmail(user.email);
-      const savedRole = localStorage.getItem("signup_role");
+      const savedRole = localStorage.getItem("signup_role") || "student";
 
       console.log("signup_role from localStorage:", savedRole);
     /*

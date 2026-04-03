@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../../supabaseconfig";
-import { getMessagesForConversation, sendMessage } from "../../services/supabaseapi";
+import {
+  getMessagesForConversation,
+  sendMessage,
+  createNotification,
+} from "../../services/supabaseapi";
 /*
 Component for message view. Handles formatting of messages to send them
 */
@@ -13,7 +17,7 @@ export default function ConversationView({ dbUser, conversation }) {
 
   useEffect(() => {
     if (!conversation?.conversation_id) return;
-    
+
     setMessages([]);
     setLoading(true);
     fetchMessages();
@@ -27,11 +31,11 @@ export default function ConversationView({ dbUser, conversation }) {
         table: "messages",
         filter: `conversation_id=eq.${conversation.conversation_id}`,
       }, (payload) => {
-        setMessages(prev => {
-          const exists = prev.some(m => m.message_id === payload.new.message_id);
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.message_id === payload.new.message_id);
           if (exists) return prev;
           const withoutOptimistic = prev.filter(
-            m => !(m._optimistic && m.body === payload.new.body && m.sender_user_id === payload.new.sender_user_id)
+            (m) => !(m._optimistic && m.body === payload.new.body && m.sender_user_id === payload.new.sender_user_id)
           );
           return [...withoutOptimistic, payload.new];
         });
@@ -65,7 +69,7 @@ export default function ConversationView({ dbUser, conversation }) {
     if (!newMessage.trim()) return;
     const body = newMessage.trim();
     const optimisticId = `optimistic-${Date.now()}`;
- 
+
     const optimisticMsg = {
       message_id: optimisticId,
       conversation_id: conversation.conversation_id,
@@ -74,8 +78,8 @@ export default function ConversationView({ dbUser, conversation }) {
       sent_at: new Date().toISOString(),
       _optimistic: true,
     };
- 
-    setMessages(prev => [...prev, optimisticMsg]);
+
+    setMessages((prev) => [...prev, optimisticMsg]);
     setNewMessage("");
     setSending(true);
 
@@ -91,9 +95,23 @@ export default function ConversationView({ dbUser, conversation }) {
         body,
       });
       if (error) throw error;
+
+      // Notify the other participant
+      const recipientId =
+        conversation.initiator_user_id === dbUser.user_id
+          ? conversation.recipient_user_id
+          : conversation.initiator_user_id;
+
+      if (recipientId && recipientId !== dbUser.user_id) {
+        await createNotification({
+          userId: recipientId,
+          type: "message",
+          message: `${dbUser.first_name || "Someone"} sent you a new message`,
+        });
+      }
     } catch (err) {
       console.error("Failed to send message:", err);
-      setMessages(prev => prev.filter(m => m.message_id !== optimisticId));
+      setMessages((prev) => prev.filter((m) => m.message_id !== optimisticId));
       setNewMessage(body);
       alert("Failed to send message.");
     } finally {
@@ -113,7 +131,7 @@ export default function ConversationView({ dbUser, conversation }) {
         {messages.length === 0 ? (
           <p className="text-muted">No messages yet. Say hello!</p>
         ) : (
-          messages.map(msg => {
+          messages.map((msg) => {
             const isMe = msg.sender_user_id === dbUser.user_id;
             return (
               <div key={msg.message_id} className={`d-flex ${isMe ? "justify-content-end" : "justify-content-start"}`}>
@@ -145,8 +163,8 @@ export default function ConversationView({ dbUser, conversation }) {
           rows={2}
           placeholder="Type a message... (Enter to send)"
           value={newMessage}
-          onChange={e => setNewMessage(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
         />
         <button className="btn btn-primary" onClick={handleSend} disabled={sending || !newMessage.trim()}>
           Send
