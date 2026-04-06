@@ -66,32 +66,32 @@ export default function Navbar() {
 
             <Nav.Link
               as={Link}
-              to="/jobs"
-              className={isActive("/jobs") ? "fw-bold text-primary" : "fw-semibold"}
+              to="/Jobs"
+              className={isActive("/Jobs") ? "fw-bold text-primary" : "fw-semibold"}
             >
               Jobs
             </Nav.Link>
 
             <Nav.Link
               as={Link}
-              to="/messages"
-              className={isActive("/messages") ? "fw-bold text-primary" : "fw-semibold"}
+              to="/Messages"
+              className={isActive("/Messages") ? "fw-bold text-primary" : "fw-semibold"}
             >
               Messages
             </Nav.Link>
 
             <Nav.Link
               as={Link}
-              to="/bookings"
-              className={isActive("/bookings") ? "fw-bold text-primary" : "fw-semibold"}
+              to="/Bookings"
+              className={isActive("/Bookings") ? "fw-bold text-primary" : "fw-semibold"}
             >
               Bookings
             </Nav.Link>
 
             <Nav.Link
               as={Link}
-              to="/payment"
-              className={isActive("/payment") ? "fw-bold text-primary" : "fw-semibold"}
+              to="/Payment"
+              className={isActive("/Payment") ? "fw-bold text-primary" : "fw-semibold"}
             >
               Payment
             </Nav.Link>
