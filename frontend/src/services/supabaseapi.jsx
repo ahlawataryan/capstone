@@ -723,19 +723,19 @@ Only selects the columns that actually exist in the table.
 export async function getNotificationsForUser(userId) {
   return await supabase
     .from("notifications")
-    .select("notification_id, user_id, type, channel, status, created_at")
+    .select("notification_id, type, channel, message, created_at")
     .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(50);
+    .neq("status", "cleared")
+    .order("created_at", { ascending: false });
 }
  
 /**
  Mark one notification as read.
- */
-export async function markNotificationRead(notificationId) {
+*/
+export async function markNotificationCleared(notificationId) {
   return await supabase
     .from("notifications")
-    .update({ status: "read" })
+    .update({ status: "cleared" })
     .eq("notification_id", notificationId);
 }
  
@@ -758,26 +758,8 @@ type values:
   "booking_declined" | "booking_cancelled" | "booking_update"
 Errors are logged but never thrown — notifications are non-critical.
 */
-export async function createNotification({ userId, type }) {
-  if (!userId || !type) return { data: null, error: null };
-  try {
-    const { data, error } = await supabase
-      .from("notifications")
-      .insert({
-        user_id: userId,
-        type,
-        channel: "in_app",
-        status: "unread",
-      })
-      .select("notification_id")
-      .single();
-    if (error) {
-      console.warn("[createNotification] non-fatal error:", error.message);
-      return { data: null, error };
-    }
-    return { data, error: null };
-  } catch (err) {
-    console.warn("[createNotification] non-fatal exception:", err);
-    return { data: null, error: err };
-  }
+export async function createNotification({ userId, type, channel, message = null, status = "sent" }) {
+  return await supabase
+    .from("notifications")
+    .insert({ user_id: userId, type, channel, message, status });
 }

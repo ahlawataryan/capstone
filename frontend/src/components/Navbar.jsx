@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Link, useLocation } from "react-router-dom";
 import {
@@ -7,13 +8,23 @@ import {
   Navbar as BsNavbar,
 } from "react-bootstrap";
 import { getRoleForEmail } from "../providers/roleStore";
+import { getUserByEmail } from "../services/supabaseapi";
 import NotificationBell from "./NotificationBell";
 
 export default function Navbar() {
   const { user, logout } = useAuth0();
   const location = useLocation();
+  const [dbUserId, setDbUserId] = useState(null);
 
   const role = getRoleForEmail(user?.email);
+
+  // Fetch the database user_id so the notification bell can query notifications
+  useEffect(() => {
+    if (!user?.email) return;
+    getUserByEmail(user.email).then(({ data }) => {
+      if (data?.user_id) setDbUserId(data.user_id);
+    });
+  }, [user?.email]);
 
   const getHomePath = () => {
     if (role === "student") return "/student/dashboard";
@@ -86,7 +97,8 @@ export default function Navbar() {
               {user?.email || user?.name}
             </span>
 
-            <NotificationBell />
+            {/* Notification bell — only rendered once we have a userId */}
+            {dbUserId && <NotificationBell userId={dbUserId} />}
 
             <Button as={Link} to="/profile" variant="primary" size="sm">
               Profile
