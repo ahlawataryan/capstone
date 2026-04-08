@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
 import {
   Button,
   Container,
@@ -13,25 +14,27 @@ import NotificationBell from "./NotificationBell";
 
 export default function Navbar() {
   const { user, logout } = useAuth0();
+  const [dbUser, setDbUser] = useState(null);
   const location = useLocation();
   const [dbUserId, setDbUserId] = useState(null);
 
-  const role = getRoleForEmail(user?.email);
+  useEffect(() => {
+    if (!user?.email) return;
 
   // Fetch the database user_id so the notification bell can query notifications
   useEffect(() => {
     if (!user?.email) return;
-    getUserByEmail(user.email).then(({ data }) => {
-      if (data?.user_id) setDbUserId(data.user_id);
-    });
+    const loadUser = async () => {
+      const { data: userData, error: userError } = await getUserByEmail(user.email);
+      if (userError) {
+        console.error("Error loading user:", userError);
+        return;
+      }
+      setDbUser(userData);
+      if (userData?.user_id) setDbUserId(userData.user_id);
+    };
+    loadUser();
   }, [user?.email]);
-
-  const getHomePath = () => {
-    if (role === "student") return "/student/dashboard";
-    if (role === "client") return "/client/dashboard";
-    if (role === "admin") return "/admin";
-    return "/post-login";
-  };
 
   const handleLogout = () =>
     logout({
@@ -39,6 +42,13 @@ export default function Navbar() {
     });
 
   const isActive = (path) => location.pathname === path;
+
+  const getHomePath = () => {
+    if (dbUser?.role === "student") return "/student/dashboard";
+    if (dbUser?.role === "client") return "/client/dashboard";
+    if (dbUser?.role === "admin") return "/AdminDashboard";
+    return "/";
+  };
 
   return (
     <BsNavbar bg="light" expand="lg" className="border-bottom shadow-sm py-2">
@@ -53,8 +63,8 @@ export default function Navbar() {
           <Nav className="ms-auto align-items-lg-center gap-lg-2">
             <Nav.Link
               as={Link}
-              to="/AdminDashboard"
-              className={isActive("/AdminDashboard") ? "fw-bold text-primary" : "fw-semibold"}
+              to={getHomePath()}
+              className={isActive(getHomePath()) ? "fw-bold text-primary" : "fw-semibold"}
             >
               Home
             </Nav.Link>
@@ -94,7 +104,9 @@ export default function Navbar() {
 
           <div className="d-flex align-items-center gap-2 ms-lg-3 mt-3 mt-lg-0">
             <span className="small text-muted d-none d-md-inline">
-              {user?.email || user?.name}
+              {dbUser
+                ? `${dbUser.first_name || ""} ${dbUser.last_name || ""}`.trim() || dbUser.email
+                : user?.email || "Client"}
             </span>
 
             {/* Notification bell — only rendered once we have a userId */}

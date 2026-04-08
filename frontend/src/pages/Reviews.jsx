@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Container, Card } from "react-bootstrap";
+import { Container, Card, Row, Col, ProgressBar } from "react-bootstrap";
 import Navbar from "../components/Navbar";
 import ReviewForm from "../components/Reviews/ReviewForm";
 import ReviewList from "../components/Reviews/ReviewList";
@@ -22,7 +22,15 @@ export default function Reviews() {
   const [student, setStudent] = useState(null);
   const [activeStudentId, setActiveStudentId] = useState(null);
   const [reviews, setReviews] = useState([]);
-  const [summary, setSummary] = useState({ avg: 0, count: 0 });
+  const [summary, setSummary] = useState({
+    avg: 0,
+    count: 0,
+    workQualityAvg: 0,
+    communicationAvg: 0,
+    professionalismAvg: 0,
+    reliabilityAvg: 0,
+    distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+  });
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -52,7 +60,15 @@ export default function Reviews() {
       setActiveStudentId(null);
       setStudent(null);
       setReviews([]);
-      setSummary({ avg: 0, count: 0 });
+      setSummary({
+        avg: 0,
+        count: 0,
+        workQualityAvg: 0,
+        communicationAvg: 0,
+        professionalismAvg: 0,
+        reliabilityAvg: 0,
+        distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+      });
       setLoading(false);
       return;
     }
@@ -82,9 +98,27 @@ export default function Reviews() {
 
     if (summaryError) {
       console.error("Failed to load review summary:", summaryError);
-      setSummary({ avg: 0, count: 0 });
+      setSummary({
+        avg: 0,
+        count: 0,
+        workQualityAvg: 0,
+        communicationAvg: 0,
+        professionalismAvg: 0,
+        reliabilityAvg: 0,
+        distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+      });
     } else {
-      setSummary(reviewSummary || { avg: 0, count: 0 });
+      setSummary(
+        reviewSummary || {
+          avg: 0,
+          count: 0,
+          workQualityAvg: 0,
+          communicationAvg: 0,
+          professionalismAvg: 0,
+          reliabilityAvg: 0,
+          distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        }
+      );
     }
 
     setLoading(false);
@@ -94,7 +128,11 @@ export default function Reviews() {
     load();
   }, [user, studentIdFromUrl]);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const distributionPercent = (star) => {
+    if (!summary.count) return 0;
+    return Math.round(((summary.distribution?.[star] || 0) / summary.count) * 100);
+  };
+
   return (
     <>
       <Navbar />
@@ -134,10 +172,50 @@ export default function Reviews() {
               </Card.Body>
             </Card>
 
+            <Card className="mb-3 shadow-sm">
+              <Card.Body>
+                <h5 className="mb-3">Review Analytics</h5>
+
+                <Row className="g-3">
+                  <Col md={6}>
+                    <div className="mb-2">
+                      <strong>Work Quality:</strong> <RatingStars value={summary.workQualityAvg} />
+                    </div>
+                    <div className="mb-2">
+                      <strong>Communication:</strong>{" "}
+                      <RatingStars value={summary.communicationAvg} />
+                    </div>
+                    <div className="mb-2">
+                      <strong>Professionalism:</strong>{" "}
+                      <RatingStars value={summary.professionalismAvg} />
+                    </div>
+                    <div className="mb-2">
+                      <strong>Reliability:</strong> <RatingStars value={summary.reliabilityAvg} />
+                    </div>
+                  </Col>
+
+                  <Col md={6}>
+                    {[5, 4, 3, 2, 1].map((star) => (
+                      <div key={star} className="mb-2">
+                        <div className="d-flex justify-content-between small mb-1">
+                          <span>{star} star</span>
+                          <span>
+                            {summary.distribution?.[star] || 0} ({distributionPercent(star)}%)
+                          </span>
+                        </div>
+                        <ProgressBar now={distributionPercent(star)} />
+                      </div>
+                    ))}
+                  </Col>
+                </Row>
+              </Card.Body>
+            </Card>
+
             {dbUser?.role === "client" && (
               <ReviewForm
                 reviewerUserId={dbUser.user_id}
                 revieweeUserId={activeStudentId}
+                reviews={reviews}
                 onSubmitted={load}
               />
             )}
@@ -150,7 +228,12 @@ export default function Reviews() {
               </Card>
             )}
 
-            <ReviewList reviews={reviews} />
+            <ReviewList
+              reviews={reviews}
+              currentUserId={dbUser?.user_id}
+              currentUserRole={dbUser?.role}
+              onChanged={load}
+            />
           </>
         )}
       </Container>

@@ -6,7 +6,15 @@ import {
   getProfileSkills,
   saveProfileSkills,
 } from "../services/skillService";
-import { getUserByEmail, updateUser, updateUserProfile } from "../services/supabaseapi"
+import { 
+    getUserByEmail, 
+    updateUser, 
+    updateUserProfile, 
+    updateIcon, 
+    getIcon, 
+    setUserIcon,
+    deleteIcon 
+} from "../services/supabaseapi"
 
 
 const BIO_MAX = 1024;
@@ -39,6 +47,7 @@ export default function Profile() {
 };
 
   const [previewUrl, setPreviewUrl] = useState("");
+  const [iconFile, setIconFile] = useState("");//Added to track the profile picture
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [profile, setProfile] = useState(null);
@@ -73,8 +82,13 @@ export default function Profile() {
           bio: "",
         });
       }
-
-      setPreviewUrl(user.picture || "");
+      if(profileData.icon_url != null || profileData.icon_url == ""){
+        const {data: iconData} = getIcon(profileData.icon_url);//icon_url is null by default
+        setPreviewUrl(iconData.publicUrl || "");
+      }
+      else {
+        setPreviewUrl("");
+      }
     } catch (err) {
       console.error(err);
       setError("Could not load profile.");
@@ -115,7 +129,9 @@ export default function Profile() {
       setError("Image must be under 5MB.");
       return;
     }
-
+    //Tracking the current profile picture. I don't think the data is correct
+    setIconFile(file);
+    //New image saved in PreviewUrl. Add this to database in save section
     const reader = new FileReader();
     reader.onloadend = () => {
       setPreviewUrl(reader.result);
@@ -164,6 +180,15 @@ try {
   }
 
   console.log("updatedProfile:", updatedProfile);
+  //Update profile picture
+  //Checking if there is a new image. icon_url is null by default
+  let userUrl = profile.user_id + ".jpg";
+  if(profile.icon_url != previewUrl){
+    const {error : updateIconError} = updateIcon(userUrl, iconFile);
+    if(updateIconError) throw updateIconError;
+    const {error : setUserIconError} = setUserIcon(profile.email, userUrl);
+    if(setUserIconError) throw setUserIconError;
+  }
 } catch (err) {
   console.error("updateUserProfile failed:", err);
   setError("updateUserProfile failed.");

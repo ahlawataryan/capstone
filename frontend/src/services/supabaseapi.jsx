@@ -160,6 +160,40 @@ export async function updateUser(email, updates) {
     .select()
     .single();
 }
+/*
+Add a file to storage. File accessed using a url in the user table
+Takes an email for user reference, file url for the name, file itself
+*/
+export async function updateIcon(fileurl, file){
+  return await supabase
+  .storage
+  .from('icons')
+  .upload(fileurl, file, {upsert : true, contentType: "/image/jpeg"});
+}
+
+/*
+Get an image from storage. The url should be possible to display with like an </img> block
+I have no idea why this isn't a promise like the rest of them, but it works
+*/
+export function getIcon(fileurl){
+  return supabase.storage.from('icons').getPublicUrl(fileurl);
+}
+
+export async function setUserIcon(email, fileurl){
+  return await supabase
+  .from("users")
+  .update({icon_url : fileurl})
+  .eq("email", email)
+  .select();
+}
+
+/*
+Delete an image from storage using a url. May need to be an array as an argument.
+*/
+export async function deleteIcon(fileurl){
+  return { data, error } = await supabase.storage.from('icons').remove(fileurl);
+}
+
 
 // ─────────────────────────────────────────────────
 // SKILLS
@@ -542,55 +576,181 @@ export async function getCompletedBookingsForClientAndStudent(clientUserId, stud
 // REVIEWS
 // ─────────────────────────────────────────────────
 
-/** Get reviews for a student (latest first). */
+/** Get reviews for a student (latest first), including reviewer info and category ratings. */
 export async function getReviewsForStudent(revieweeUserId) {
   return await supabase
     .from("reviews")
     .select(`
-      review_id, 
-      rating, 
-      comment, 
+      review_id,
+      booking_id,
+      reviewer_user_id,
+      reviewee_user_id,
+      rating,
+      work_quality_rating,
+      communication_rating,
+      professionalism_rating,
+      reliability_rating,
+      comment,
       created_at,
       users!reviews_reviewer_user_id_fkey (
-        first_name, 
-        last_name
+        user_id,
+        first_name,
+        last_name,
+        email
       )
     `)
     .eq("reviewee_user_id", revieweeUserId)
     .order("created_at", { ascending: false });
 }
 
-/** Get average rating + total count for a student. Returns { data: { avg, count } } */
+/**
+ * Get full review analytics for a student.
+ * Returns:
+ * {
+ *   avg,
+ *   count,
+ *   workQualityAvg,
+ *   communicationAvg,
+ *   professionalismAvg,
+ *   reliabilityAvg,
+ *   distribution: { 5, 4, 3, 2, 1 }
+ * }
+ */
 export async function getReviewSummary(revieweeUserId) {
   const { data, error } = await supabase
     .from("reviews")
-    .select("rating")
+    .select(`
+      rating,
+      work_quality_rating,
+      communication_rating,
+      professionalism_rating,
+      reliability_rating
+    `)
     .eq("reviewee_user_id", revieweeUserId);
 
   if (error) return { data: null, error };
 
-  const count = data.length;
-  const avg = count === 0 ? 0 : data.reduce((sum, r) => sum + r.rating, 0) / count;
+  const reviews = data || [];
+  const count = reviews.length;
 
-  return { data: { avg, count }, error: null };
+  if (count === 0) {
+    return {
+      data: {
+        avg: 0,
+        count: 0,
+        workQualityAvg: 0,
+        communicationAvg: 0,
+        professionalismAvg: 0,
+        reliabilityAvg: 0,
+        distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+      },
+      error: null,
+    };
+  }
+
+  const average = (values) =>
+    Math.round(
+      (values.reduce((sum, value) => sum + Number(value || 0), 0) / count) * 10
+    ) / 10;
+
+  const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+
+  reviews.forEach((review) => {
+    const rounded = Math.round(Number(review.rating || 0));
+    if (distribution[rounded] !== undefined) {
+      distribution[rounded] += 1;
+    }
+  });
+
+  return {
+    data: {
+      avg: average(reviews.map((r) => r.rating)),
+      count,
+      workQualityAvg: average(reviews.map((r) => r.work_quality_rating)),
+      communicationAvg: average(reviews.map((r) => r.communication_rating)),
+      professionalismAvg: average(reviews.map((r) => r.professionalism_rating)),
+      reliabilityAvg: average(reviews.map((r) => r.reliability_rating)),
+      distribution,
+    },
+    error: null,
+  };
 }
 
 /**
  * Create or update a review.
- * A client can only leave one review per student (unique on student_email + client_email).
+ * Supports detailed category ratings and editing existing reviews.
  */
-export async function upsertReview({ bookingId, reviewerUserId, revieweeUserId, rating, comment }) {
+export async function upsertReview({
+  reviewId = null,
+  bookingId = null,
+  reviewerUserId,
+  revieweeUserId,
+  rating,
+  workQualityRating,
+  communicationRating,
+  professionalismRating,
+  reliabilityRating,
+  comment,
+}) {
+  const payload = {
+    booking_id: bookingId,
+    reviewer_user_id: reviewerUserId,
+    reviewee_user_id: revieweeUserId,
+    rating,
+    work_quality_rating: workQualityRating,
+    communication_rating: communicationRating,
+    professionalism_rating: professionalismRating,
+    reliability_rating: reliabilityRating,
+    comment,
+  };
+
+  if (reviewId) {
+    return await supabase
+      .from("reviews")
+      .update(payload)
+      .eq("review_id", reviewId)
+      .select()
+      .single();
+  }
+
   return await supabase
     .from("reviews")
-    .insert({
-      booking_id: bookingId,
-      reviewer_user_id: reviewerUserId,
-      reviewee_user_id: revieweeUserId,
-      rating,
-      comment,
-    })
+    .insert(payload)
     .select()
     .single();
+}
+
+/** Delete a review by review_id. */
+export async function deleteReview(reviewId) {
+  return await supabase
+    .from("reviews")
+    .delete()
+    .eq("review_id", reviewId);
+}
+
+/**
+ * Get a single review left by a reviewer for a specific student.
+ * Useful if you want to prefill edit form or enforce one review per reviewer/student.
+ */
+export async function getReviewByReviewerAndStudent(reviewerUserId, revieweeUserId) {
+  return await supabase
+    .from("reviews")
+    .select(`
+      review_id,
+      booking_id,
+      reviewer_user_id,
+      reviewee_user_id,
+      rating,
+      work_quality_rating,
+      communication_rating,
+      professionalism_rating,
+      reliability_rating,
+      comment,
+      created_at
+    `)
+    .eq("reviewer_user_id", reviewerUserId)
+    .eq("reviewee_user_id", revieweeUserId)
+    .maybeSingle();
 }
 // ─────────────────────────────────────────────────
 // JOB SEARCHING

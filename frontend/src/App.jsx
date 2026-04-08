@@ -3,6 +3,8 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useRef } from "react";
 import { supabase } from "./supabaseconfig";
 import { setRoleForEmail } from "./providers/roleStore";
+import { getUserByEmail, insertUser } from "./services/supabaseapi";
+import "bootstrap-icons/font/bootstrap-icons.css";
 
 import Login from "./pages/login";
 import AdminDashboard from "./pages/admin/AdminDashboard";
