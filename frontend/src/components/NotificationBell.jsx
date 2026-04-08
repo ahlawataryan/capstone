@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { getNotificationsForUser, markNotificationCleared } from "../services/supabaseapi";
 
 const TYPE_LABELS = {
   message:         "New message",
   booking_request: "Booking request",
-  booking:         "Booking accepted",
+  booking_accepted: "Booking accepted",
   booking_declined:"Booking declined",
   booking_cancelled:"Booking cancelled",
   review:          "New review",
@@ -17,6 +17,19 @@ export default function NotificationBell({ userId }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Handle notification clearing from router state
+  useEffect(() => {
+    if (location.state?.clearNotification) {
+      const clearNotificationId = location.state.clearNotification;
+      markNotificationCleared(clearNotificationId);
+      setNotifications((prev) =>
+        prev.filter((n) => n.notification_id !== clearNotificationId)
+      );
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   // Load notifications whenever userId changes
   useEffect(() => {
@@ -44,7 +57,7 @@ export default function NotificationBell({ userId }) {
   }, []);
 
   const handleClear = async (e, notificationId) => {
-    e.stopPropagation(); // don't trigger the row click / navigate
+    e.stopPropagation();
     const { error } = await markNotificationCleared(notificationId);
     if (!error) {
       setNotifications((prev) =>
@@ -61,13 +74,12 @@ export default function NotificationBell({ userId }) {
   };
 
   const handleNotificationClick = (n) => {
-    markNotificationCleared(n.notification_id);
-    
     const [type, id] = (n.type || "").split(":");
+    markNotificationCleared(n.notification_id);
     
     if (type === "message" && id) {
       // Navigate to specific conversation
-      navigate(`/messages?conversationId=${id}`);
+      navigate(`/messages?conversationId=${id}`, { state: { clearNotification: n.notification_id } });
       return;
     }
     

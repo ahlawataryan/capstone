@@ -146,14 +146,17 @@ export default function Bookings() {
   No error handling
   */
   const fetchStudentData = async (userId) => {
-    const [sentRes, receivedRes, bookingsRes] = await Promise.all([
+    const [sentRes, receivedRes, bookingsAsStudentRes, bookingsAsClientRes] = await Promise.all([
       getBookingRequestsByClient(userId),
       getBookingRequestsForStudent(userId),
       getBookingsForStudent(userId),
+      getBookingsByClient(userId),
     ]);
     setSentRequests(sentRes.data || []);
     setReceivedRequests(receivedRes.data || []);
-    setStudentBookings(bookingsRes.data || []);
+    // Combine bookings where student is both service provider and customer
+    const allStudentBookings = [...(bookingsAsStudentRes.data || []), ...(bookingsAsClientRes.data || [])];
+    setStudentBookings(allStudentBookings);
   };
   /*
   Get booking requests for clients
@@ -203,7 +206,7 @@ export default function Bookings() {
           // Notify the client that their request was accepted
           await createNotification({
             userId: req.customer_id,
-            type: "booking:" + req.request_id,
+            type: "booking_accepted:" + req.request_id,
             message: `Your booking request for "${req.listings?.title}" has been accepted!`,
           });
         }
@@ -213,7 +216,7 @@ export default function Bookings() {
         // Notify the client that their request was declined
         await createNotification({
           userId: req.customer_id,
-          type: "booking:" + req.request_id,
+          type: "booking_declined:" + req.request_id,
           message: `Your booking request for "${req.listings?.title}" has been declined.`,
         });
       }
@@ -242,7 +245,7 @@ export default function Bookings() {
       if (cancelError) throw cancelError;
 
       const recipientId = role === "student"
-        ? cancelModal.customer_id
+        ? (cancelModal.customer_id === dbUser?.user_id ? cancelModal.listings?.users?.user_id : cancelModal.customer_id)
         : cancelModal.listings?.users?.user_id ?? null;
 
       if (recipientId) {
@@ -263,11 +266,21 @@ export default function Bookings() {
         if (msgError) throw msgError;
 
         // Notify the other party
-        await createNotification({
-          userId: recipientId,
-          type: `booking_cancelled:${cancelModal.bookings_id}`,
-          message: `Your booking for "${cancelModal.listings?.title}" has been cancelled.\n\nReason: ${cancelReason.trim()}`,
-        });
+        if (recipientId) {
+          const { error: notificationError } = await createNotification({
+            userId: recipientId,
+            type: `booking_cancelled:${cancelModal.bookings_id}`,
+            message: `Your booking for "${cancelModal.listings?.title}" has been cancelled.\n\nReason: ${cancelReason.trim()}`,
+          });
+          
+          if (notificationError) {
+            console.error("Failed to create cancellation notification:", notificationError);
+          } else {
+            console.log("Cancellation notification sent to user:", recipientId);
+          }
+        } else {
+          console.error("No recipient ID found for cancellation notification");
+        }
       }
 
       setCancelModal(null);
@@ -476,9 +489,16 @@ export default function Bookings() {
                         </div>
                         <div className="card-body">
                           {role === "student" ? (
-                            <p className="text-muted small mb-1">
-                              Client: {booking.users?.first_name} {booking.users?.last_name}
-                            </p>
+                            // For students, check if they are the service provider or customer
+                            booking.listings?.student_id === dbUser?.user_id ? (
+                              <p className="text-muted small mb-1">
+                                Client: {booking.users?.first_name} {booking.users?.last_name}
+                              </p>
+                            ) : (
+                              <p className="text-muted small mb-1">
+                                Student: {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
+                              </p>
+                            )
                           ) : (
                             <p className="text-muted small mb-1">
                               Student: {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
