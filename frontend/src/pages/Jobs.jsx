@@ -4,19 +4,21 @@ import { useAuth0 } from "@auth0/auth0-react";
 import Navbar from "../components/Navbar";
 import {
   getUserByEmail,
-  getAllSkills,
-  getSkillsForStudent,
   getActiveListings,
   getListingsByStudent,
   createListing,
-  addSkillToListing,
-  createBookingRequest,
-  createConversation,
-  sendMessage,
   updateListing,
   deactivateListing,
+  addSkillToListing,
+  getAllSkills,
+  getSkillsForStudent,
+  createBookingRequest,
+  getBookingRequestsForStudent,
+  createConversation,
+  sendMessage,
   createNotification,
 } from "../services/supabaseapi";
+
 /*
 Component to create and display listings.
 Additionally initiates booking requests and sends initial messages
@@ -228,10 +230,20 @@ export default function Jobs() {
       // Notify the student
       const studentUserId = hireModal.users?.user_id;
       if (studentUserId) {
-        await createNotification({
-          userId: studentUserId,
-          type: "booking_request",
-        });
+        // Get the created request ID for the notification
+        const { data: requestData } = await getBookingRequestsForStudent(studentUserId);
+        const latestRequest = requestData?.find(r => 
+          r.customer_id === dbUser.user_id && 
+          r.listing_id === hireModal.listing_id
+        );
+        
+        if (latestRequest) {
+          await createNotification({
+            userId: studentUserId,
+            type: "booking_request:" + latestRequest.request_id,
+            message: `New hire request for "${hireModal.title}" from ${dbUser.first_name} ${dbUser.last_name}`,
+          });
+        }
       }
 
       alert("Hire request sent!");
@@ -280,7 +292,8 @@ export default function Jobs() {
       // Notify the recipient
       await createNotification({
         userId: recipientId,
-        type: "message",
+        type: "message:" + convo.conversation_id,
+        message: "You have a new message from " + dbUser.first_name + " " + dbUser.last_name,
       });
 
       alert("Message sent!");

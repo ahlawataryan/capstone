@@ -37,7 +37,7 @@ supabase-js
   bookings           – bookings_id, request_id, customer_id, listing_id, start_at, end_at, status, agreed_price_amount, created_at, updated_at
   conversations      – conversation_id, booking_id, request_id, created_at, recipient_user_id, initiator_user_id
   messages           – message_id, conversation_id, sender_user_id, body, sent_at, read_at
-  notifications      – notification_id, user_id, type, channel, status, created_at
+  notifications      – notification_id, user_id, type, message, channel, status, created_at
   payments           – payment_id, booking_id, customer_id, student_id, amount, status, provider, provider_payment_id, created_at, paid_at
   reviews            – review_id, booking_id, reviewer_user_id, reviewee_user_id, rating, comment, created_at
 */
@@ -758,8 +758,8 @@ type values:
   "booking_declined" | "booking_cancelled" | "booking_update"
 Errors are logged but never thrown — notifications are non-critical.
 */
-export async function createNotification({ userId, type, channel, message = null, status = "sent" }) {
+export async function createNotification({ userId, type, channel = "in_app", message = null, status = "sent" }) {
   return await supabase
     .from("notifications")
-    .insert({ user_id: userId, type, channel, message, status });
+    .insert([{ user_id: userId, type, channel, message, status }]);
 }

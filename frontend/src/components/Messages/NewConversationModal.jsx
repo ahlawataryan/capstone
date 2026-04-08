@@ -54,7 +54,7 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
       if (msgError) throw msgError;
 
       // Notify the recipient
-      await createNotification({ userId: parseInt(selectedUser), type: "message" });
+      await createNotification({ userId: parseInt(selectedUser), type: "message:" + convo.conversation_id, message: "You have a new message from " + dbUser.first_name + " " + dbUser.last_name });
 
       onCreated(convo);
     } catch (err) {

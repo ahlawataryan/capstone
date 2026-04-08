@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useSearchParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import {
   getUserByEmail,
@@ -38,6 +39,7 @@ function StatusBadge({ status }) {
 
 export default function Bookings() {
   const { user } = useAuth0();
+  const [searchParams] = useSearchParams();
   const [dbUser, setDbUser] = useState(null);
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -58,6 +60,58 @@ export default function Bookings() {
   useEffect(() => {
     if (user?.email) fetchData();
   }, [user]);
+
+  // Handle bookingId and tab navigation from URL parameters
+  useEffect(() => {
+    if (!loading && dbUser && role) {
+      const bookingId = searchParams.get('bookingId');
+      const tab = searchParams.get('tab');
+      
+      if (bookingId) {
+        // Find which tab contains this booking and navigate to it
+        if (role === 'student') {
+          // Check sent requests
+          const sentReq = sentRequests.find(r => r.request_id === parseInt(bookingId));
+          if (sentReq) {
+            setActiveTab('sent');
+            return;
+          }
+          // Check received requests
+          const receivedReq = receivedRequests.find(r => r.request_id === parseInt(bookingId));
+          if (receivedReq) {
+            setActiveTab('received');
+            return;
+          }
+          // Check active bookings
+          const booking = studentBookings.find(b => b.bookings_id === parseInt(bookingId));
+          if (booking) {
+            setActiveTab('active');
+            return;
+          }
+        } else {
+          // Client role - check sent requests
+          const sentReq = clientSentRequests.find(r => r.request_id === parseInt(bookingId));
+          if (sentReq) {
+            setActiveTab('sent');
+            return;
+          }
+          // Check active bookings
+          const booking = clientBookings.find(b => b.bookings_id === parseInt(bookingId));
+          if (booking) {
+            setActiveTab('active');
+            return;
+          }
+        }
+      } else if (tab) {
+        // Navigate to specific tab if provided
+        if (role === 'student' && ['sent', 'received', 'active'].includes(tab)) {
+          setActiveTab(tab);
+        } else if (role === 'client' && ['sent', 'active'].includes(tab)) {
+          setActiveTab(tab);
+        }
+      }
+    }
+  }, [searchParams, loading, dbUser, role, sentRequests, receivedRequests, studentBookings, clientSentRequests, clientBookings]);
 
   const fetchData = async () => {
     try {
@@ -149,7 +203,8 @@ export default function Bookings() {
           // Notify the client that their request was accepted
           await createNotification({
             userId: req.customer_id,
-            type: "booking_accepted",
+            type: "booking:" + req.request_id,
+            message: `Your booking request for "${req.listings?.title}" has been accepted!`,
           });
         }
       }
@@ -158,7 +213,8 @@ export default function Bookings() {
         // Notify the client that their request was declined
         await createNotification({
           userId: req.customer_id,
-          type: "booking_declined",
+          type: "booking:" + req.request_id,
+          message: `Your booking request for "${req.listings?.title}" has been declined.`,
         });
       }
 
@@ -209,7 +265,8 @@ export default function Bookings() {
         // Notify the other party
         await createNotification({
           userId: recipientId,
-          type: "booking_cancelled",
+          type: `booking_cancelled:${cancelModal.bookings_id}`,
+          message: `Your booking for "${cancelModal.listings?.title}" has been cancelled.\n\nReason: ${cancelReason.trim()}`,
         });
       }
 

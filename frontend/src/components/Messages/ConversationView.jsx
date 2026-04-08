@@ -101,7 +101,7 @@ export default function ConversationView({ dbUser, conversation }) {
           : conversation.initiator_user_id;
 
       if (recipientId && recipientId !== dbUser.user_id) {
-        await createNotification({ userId: recipientId, type: "message" });
+        await createNotification({ userId: recipientId, type: "message:" + conversation.conversation_id, message: "You have a new message from " + dbUser.first_name + " " + dbUser.last_name });
       }
     } catch (err) {
       console.error("Failed to send message:", err);

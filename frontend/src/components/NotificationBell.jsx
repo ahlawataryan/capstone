@@ -5,21 +5,11 @@ import { getNotificationsForUser, markNotificationCleared } from "../services/su
 const TYPE_LABELS = {
   message:         "New message",
   booking_request: "Booking request",
-  booking_accepted:"Booking accepted",
+  booking:         "Booking accepted",
   booking_declined:"Booking declined",
   booking_cancelled:"Booking cancelled",
   review:          "New review",
   payment:         "Payment update",
-};
-
-const TYPE_ICONS = {
-  message:          "💬",
-  booking_request:  "📋",
-  booking_accepted: "✅",
-  booking_declined: "❌",
-  booking_cancelled:"🚫",
-  review:           "⭐",
-  payment:          "💳",
 };
 
 export default function NotificationBell({ userId }) {
@@ -31,6 +21,14 @@ export default function NotificationBell({ userId }) {
   // Load notifications whenever userId changes
   useEffect(() => {
     if (!userId) return;
+
+    const fetchNotifications = async () => {
+      const { data, error } = await getNotificationsForUser(userId);
+      if (!error && data) {
+        setNotifications(data);
+      }
+    };
+
     fetchNotifications();
   }, [userId]);
 
@@ -44,11 +42,6 @@ export default function NotificationBell({ userId }) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
-
-  const fetchNotifications = async () => {
-    const { data, error } = await getNotificationsForUser(userId);
-    if (!error && data) setNotifications(data);
-  };
 
   const handleClear = async (e, notificationId) => {
     e.stopPropagation(); // don't trigger the row click / navigate
@@ -67,12 +60,57 @@ export default function NotificationBell({ userId }) {
     setNotifications([]);
   };
 
-  const handleNotificationClick = (notification) => {
-    setOpen(false);
-    // channel stores the destination route, e.g. "/messages" or "/bookings"
-    const route = notification.channel;
-    if (route && route.startsWith("/")) {
-      navigate(route);
+  const handleNotificationClick = (n) => {
+    markNotificationCleared(n.notification_id);
+    
+    const [type, id] = (n.type || "").split(":");
+    
+    if (type === "message" && id) {
+      // Navigate to specific conversation
+      navigate(`/messages?conversationId=${id}`);
+      return;
+    }
+    
+    if (type === "booking" && id) {
+      // Navigate to booking page - the page will determine the correct tab
+      navigate(`/bookings?bookingId=${id}`);
+      return;
+    }
+    
+    if (type === "booking_accepted" && id) {
+      // Navigate to active bookings tab for accepted bookings
+      navigate(`/bookings?bookingId=${id}&tab=active`);
+      return;
+    }
+    
+    if (type === "booking_declined" && id) {
+      // Navigate to sent requests tab for declined bookings
+      navigate(`/bookings?bookingId=${id}&tab=sent`);
+      return;
+    }
+    
+    if (type === "booking_cancelled" && id) {
+      // Navigate to active bookings tab for cancelled bookings
+      navigate(`/bookings?bookingId=${id}&tab=active`);
+      return;
+    }
+    
+    if (type === "booking_request" && id) {
+      // Navigate to received requests tab for new booking requests
+      navigate(`/bookings?bookingId=${id}&tab=received`);
+      return;
+    }
+    
+    // Handle legacy message notifications without ID
+    if (type === "message" && !id) {
+      navigate('/messages');
+      return;
+    }
+    
+    // Handle generic booking notifications
+    if (type === "booking" && !id) {
+      navigate('/bookings');
+      return;
     }
   };
 
@@ -185,11 +223,10 @@ export default function NotificationBell({ userId }) {
                   padding: "32px 16px",
                   textAlign: "center",
                   color: "#adb5bd",
-                  fontSize: "13px",
+                  fontSize: "15px",
                 }}
               >
-                <div style={{ fontSize: "28px", marginBottom: "8px" }}>🔔</div>
-                No notifications
+                <div style={{ fontSize: "20px", marginBottom: "8px" }}>No notifications</div>
               </div>
             ) : (
               notifications.map((n) => (
@@ -202,21 +239,17 @@ export default function NotificationBell({ userId }) {
                     gap: "10px",
                     padding: "12px 16px",
                     borderBottom: "1px solid #f5f5f5",
-                    cursor: n.channel?.startsWith("/") ? "pointer" : "default",
+                    cursor: (n.type?.includes(":") || n.type === "message" || n.type === "booking") ? "pointer" : "default",
                     transition: "background 0.15s",
                   }}
                   onMouseEnter={(e) => {
-                    if (n.channel?.startsWith("/"))
+                    if (n.type?.includes(":") || n.type === "message" || n.type === "booking")
                       e.currentTarget.style.backgroundColor = "#f8f9fa";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = "transparent";
                   }}
                 >
-                  {/* Icon */}
-                  <span style={{ fontSize: "18px", flexShrink: 0, marginTop: "1px" }}>
-                    {TYPE_ICONS[n.type] ?? "🔔"}
-                  </span>
 
                   {/* Text */}
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -228,7 +261,10 @@ export default function NotificationBell({ userId }) {
                         marginBottom: "2px",
                       }}
                     >
-                      {TYPE_LABELS[n.type] ?? n.type}
+                      {(() => {
+                        const baseType = (n.type || "").split(":")[0];
+                        return TYPE_LABELS[baseType] ?? n.type;
+                      })()}
                     </div>
                     {n.message && (
                       <div
