@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Link, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
 import {
   Button,
   Container,
   Nav,
   Navbar as BsNavbar,
 } from "react-bootstrap";
-import { getRoleForEmail } from "../providers/roleStore";
 import { getUserByEmail } from "../services/supabaseapi";
 import NotificationBell from "./NotificationBell";
 
@@ -17,9 +15,6 @@ export default function Navbar() {
   const [dbUser, setDbUser] = useState(null);
   const location = useLocation();
   const [dbUserId, setDbUserId] = useState(null);
-
-  useEffect(() => {
-    if (!user?.email) return;
 
   // Fetch the database user_id so the notification bell can query notifications
   useEffect(() => {

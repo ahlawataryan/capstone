@@ -649,38 +649,86 @@ export default function Jobs() {
                 <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                   + Post a Job
                 </button>
-                  <div className="card-footer d-flex gap-2 flex-wrap">
-                    <button
-                      className="btn btn-primary btn-sm flex-fill"
-                      onClick={() => openHireModal(listing)}
-                    >
-                      Hire
-                    </button>
+              </div>
+            ) : (
+              <div className="row g-3">
+                {myListings.map((listing) => (
+                  <div className="col-md-6" key={listing.listing_id}>
+                    <div className="card h-100 shadow-sm">
+                      <div className="card-header">
+                        <h6 className="mb-0">{listing.title}</h6>
+                      </div>
+                      <div className="card-body">
+                        {listing.description && (
+                          <p className="small text-muted mb-2">{listing.description}</p>
+                        )}
+                        <p className="text-muted small mb-1">
+                          Location: {listing.location_text || "Remote"}
+                        </p>
+                        <p className="text-muted small mb-1">
+                          Rate: ${listing.price_amount} ({listing.pricing_type})
+                        </p>
+                        <p className="text-muted small mb-2">
+                          Posted: {new Date(listing.created_at).toLocaleDateString()}
+                        </p>
+                        <div>
+                          {listing.listingsskills?.map((ls) => (
+                            <span key={ls.skills?.skill_id} className="badge bg-secondary me-1" style={{ fontSize: "11px" }}>
+                              {ls.skills?.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="card-footer d-flex gap-2 flex-wrap">
+                        <button
+                          className="btn btn-primary btn-sm flex-fill"
+                          onClick={() => openHireModal(listing)}
+                        >
+                          Hire
+                        </button>
 
-                    <button
-                      className="btn btn-outline-secondary btn-sm flex-fill"
-                      onClick={() => openMessageModal(listing)}
-                    >
-                      Message
-                    </button>
+                        <button
+                          className="btn btn-outline-secondary btn-sm flex-fill"
+                          onClick={() => openMessageModal(listing)}
+                        >
+                          Message
+                        </button>
 
-                    <button
-                      className="btn btn-outline-primary btn-sm flex-fill"
-                      onClick={() => navigate(`/reviews?studentId=${listing.student_id}`)}
-                    >
-                      Reviews
-                    </button>
+                        <button
+                          className="btn btn-outline-primary btn-sm flex-fill"
+                          onClick={() => navigate(`/reviews?studentId=${listing.student_id}`)}
+                        >
+                          Reviews
+                        </button>
 
-                    {role === "admin" && (
-                      <button
-                        className="btn btn-danger btn-sm flex-fill"
-                        onClick={() => setDeleteModal(listing)}
-                      >
-                        Delete
-                      </button>
-                    )}
+                        {role === "admin" && (
+                          <button
+                            className="btn btn-danger btn-sm flex-fill"
+                            onClick={() => setDeleteModal(listing)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* My Listings Tab (students) - Student View */}
+        {activeTab === "my" && role === "student" && (
+          <div>
+            {myListings.length === 0 ? (
+              <div className="text-center py-5">
+                <div style={{ fontSize: "48px", marginBottom: "16px" }}>📋</div>
+                <h5 className="text-muted mb-2">No listings yet</h5>
+                <p className="text-muted mb-4">Post your first job to start getting hired.</p>
+                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                  + Post a Job
+                </button>
               </div>
             ) : (
               <div className="row g-3">

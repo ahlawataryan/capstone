@@ -191,7 +191,8 @@ export async function setUserIcon(email, fileurl){
 Delete an image from storage using a url. May need to be an array as an argument.
 */
 export async function deleteIcon(fileurl){
-  return { data, error } = await supabase.storage.from('icons').remove(fileurl);
+  const { data, error } = await supabase.storage.from('icons').remove(fileurl);
+  return { data, error };
 }
 
 

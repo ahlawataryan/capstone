@@ -21,15 +21,17 @@ export default function NotificationBell({ userId }) {
 
   // Handle notification clearing from router state
   useEffect(() => {
-    if (location.state?.clearNotification) {
-      const clearNotificationId = location.state.clearNotification;
-      markNotificationCleared(clearNotificationId);
-      setNotifications((prev) =>
-        prev.filter((n) => n.notification_id !== clearNotificationId)
-      );
+    const clear = async () => {
+      if (!location.state?.clearNotification || !userId) return;
+
+      await markNotificationCleared(location.state.clearNotification);
+      const { data } = await getNotificationsForUser(userId);
+      if (data) setNotifications(data);
+      
       window.history.replaceState({}, document.title);
-    }
-  }, [location.state]);
+    };
+    clear();
+  }, [location.state, userId]);
 
   // Load notifications whenever userId changes
   useEffect(() => {

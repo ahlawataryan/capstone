@@ -239,47 +239,67 @@ export default function Bookings() {
   const cancelBooking = async () => {
     if (!cancelModal || !cancelReason.trim()) return;
     setCancelling(true);
+
     try {
-      //Cancel booking. No in app error handling
-      const { error: cancelError } = await updateBookingStatus(cancelModal.bookings_id, "cancelled");
+      const { error: cancelError } = await updateBookingStatus(
+        cancelModal.bookings_id,
+        "cancelled"
+      );
       if (cancelError) throw cancelError;
 
-      const recipientId = role === "student"
-        ? (cancelModal.customer_id === dbUser?.user_id ? cancelModal.listings?.users?.user_id : cancelModal.customer_id)
-        : cancelModal.listings?.users?.user_id ?? null;
+      const currentUserId = dbUser.user_id;
+      const customerId = cancelModal.customer_id;
+
+      const studentId =
+        cancelModal.listings?.student_id ??
+        cancelModal.listings?.users?.user_id ??
+        null;
+
+      let recipientId = null;
+      if (currentUserId === customerId) {
+        recipientId = studentId;
+      } else if (currentUserId === studentId) {
+        recipientId = customerId;
+      } else {
+        recipientId = currentUserId === customerId ? studentId : customerId;
+      }
+
+      if (!recipientId) {
+        console.error("Could not determine recipient for cancellation notification", {
+          currentUserId,
+          customerId,
+          studentId,
+          listing: cancelModal.listings,
+        });
+      }
 
       if (recipientId) {
-        /*
-        Create a conversation to cancel a booking. Sends an automated message
-        Does not have an in app error handling
-        */
-        const { data: convo, error: convoError } = await createConversation({
-          initiatorUserId: dbUser.user_id,
-          recipientUserId: recipientId,
-        });
-        if (convoError) throw convoError;
-        const { error: msgError } = await sendMessage({
-          conversationId: convo.conversation_id,
-          senderUserId: dbUser.user_id,
-          body: `Your booking for "${cancelModal.listings?.title}" has been cancelled.\n\nReason: ${cancelReason.trim()}`,
-        });
-        if (msgError) throw msgError;
+        const cancellationMessage = `Your booking for "${cancelModal.listings?.title}" has been cancelled.\n\nReason: ${cancelReason.trim()}`;
 
-        // Notify the other party
-        if (recipientId) {
-          const { error: notificationError } = await createNotification({
-            userId: recipientId,
-            type: `booking_cancelled:${cancelModal.bookings_id}`,
-            message: `Your booking for "${cancelModal.listings?.title}" has been cancelled.\n\nReason: ${cancelReason.trim()}`,
+        const { error: notificationError } = await createNotification({
+          userId: recipientId,
+          type: `booking_cancelled:${cancelModal.bookings_id}`,
+          message: cancellationMessage,
+        });
+        if (notificationError) {
+          console.error("Failed to create cancellation notification:", notificationError);
+        }
+
+        try {
+          const { data: convo, error: convoError } = await createConversation({
+            initiatorUserId: currentUserId,
+            recipientUserId: recipientId,
           });
-          
-          if (notificationError) {
-            console.error("Failed to create cancellation notification:", notificationError);
-          } else {
-            console.log("Cancellation notification sent to user:", recipientId);
-          }
-        } else {
-          console.error("No recipient ID found for cancellation notification");
+          if (convoError) throw convoError;
+
+          const { error: msgError } = await sendMessage({
+            conversationId: convo.conversation_id,
+            senderUserId: currentUserId,
+            body: cancellationMessage,
+          });
+          if (msgError) throw msgError;
+        } catch (msgErr) {
+          console.error("Message failed, but notification still sent:", msgErr);
         }
       }
 
