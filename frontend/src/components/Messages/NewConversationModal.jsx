@@ -1,10 +1,5 @@
 import { useState, useEffect } from "react";
-import {
-  getAllUsers,
-  createConversation,
-  sendMessage,
-  createNotification,
-} from "../../services/supabaseapi";
+import { getAllUsers, createConversation, sendMessage, createNotification } from "../../services/supabaseapi";
 /*
 Component for initializing conversations and sending an initial method
 NOTE: Look over the getAllUsers part for establishing conversations
@@ -82,7 +77,7 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
                   <label className="form-label">Send to</label>
                   <select className="form-select" value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)}>
                     <option value="">Select a user...</option>
-                    {users.map((u) => (
+                    {users.map(u => (
                       <option key={u.user_id} value={u.user_id}>
                         {u.first_name} {u.last_name} ({u.role})
                       </option>
@@ -96,7 +91,7 @@ export default function NewConversationModal({ dbUser, onClose, onCreated }) {
                     rows={3}
                     placeholder="Type your message..."
                     value={firstMessage}
-                    onChange={(e) => setFirstMessage(e.target.value)}
+                    onChange={e => setFirstMessage(e.target.value)}
                   />
                 </div>
               </>
