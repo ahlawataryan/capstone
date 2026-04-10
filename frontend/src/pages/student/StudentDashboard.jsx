@@ -8,6 +8,9 @@ import {
   getReviewsForStudent,
   getReviewSummary,
 } from "../../services/supabaseapi";
+import Carousel from 'react-bootstrap/Carousel';
+import slide1 from '../../assets/slide1.JPG';
+import slide2 from '../../assets/slide2.JPG';
 
 /*
 Student dashboard. The most complicated one
@@ -66,6 +69,36 @@ export default function StudentDashboard() {
   return (
     <>
       <Navbar />
+
+      <Carousel>
+      <Carousel.Item>
+        <img src={slide1} alt="First slide" className="d-block w-100 text-black bg-white" style={{ height: "300px", objectFit: "cover" }}/>
+        <Carousel.Caption>
+          <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
+            <h3>Connect with real people</h3>
+          </Link>
+          <p>Navigate to Jobs to find and post work to connect to real people.</p>
+        </Carousel.Caption>
+      </Carousel.Item>
+      <Carousel.Item>
+            <img src={slide2} alt="Second slide" className="d-block w-100" style={{ height: "300px", objectFit: "cover" }}/>
+            <Carousel.Caption>
+              <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
+                <h3>Find your skills</h3>
+              </Link>
+              <p>Navigate to profile highlight your skills and interests</p>
+            </Carousel.Caption>
+          </Carousel.Item>
+      <Carousel.Item>
+        <img src={slide1} alt="First slide" className="d-block w-100" style={{ height: "300px", objectFit: "cover" }}/>
+        <Carousel.Caption>
+          <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
+            <h3>Gain real-world experience</h3>
+          </Link>
+          <p>By accepting job requests, students have access to new opportunities they've never had before</p>
+        </Carousel.Caption>
+      </Carousel.Item>
+      </Carousel>
 
       <div className="container py-4">
         <div className="p-4 p-md-5 mb-4 rounded-4 bg-light border shadow-sm">

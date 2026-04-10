@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import Navbar from "../components/Navbar";
+import { Link } from "react-router-dom";
 import {
   getActiveSkills,
   getProfileSkills,
   saveProfileSkills,
 } from "../services/skillService";
-import { 
-    getUserByEmail, 
-    updateUser, 
-    updateUserProfile, 
-    updateIcon, 
-    getIcon, 
-    setUserIcon,
-    deleteIcon 
-} from "../services/supabaseapi"
+import {
+  getUserByEmail,
+  updateUser,
+  updateUserProfile,
+  updateIcon,
+  getIcon,
+  setUserIcon,
+  deleteIcon,
+  getReviewSummary,
+  getListingsByStudent,
+} from "../services/supabaseapi";
 
 
 const BIO_MAX = 1024;
@@ -52,10 +55,25 @@ export default function Profile() {
   const [success, setSuccess] = useState("");
   const [profile, setProfile] = useState(null);
 
+  const [reviewSummary, setReviewSummary] = useState({
+    avg: 0,
+    count: 0,
+    workQualityAvg: 0,
+    communicationAvg: 0,
+    professionalismAvg: 0,
+    reliabilityAvg: 0,
+    distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+  });
+
+  const [userListings, setUserListings] = useState([]);
+  const [role, setRole] = useState(null);
+
+
   useEffect(() => {
   const loadProfile = async () => {
     if (!user?.email) return;
 
+    
     try {
       const { data: profileData, error } = await getUserByEmail(user.email);
       if (error) throw error;
@@ -71,6 +89,25 @@ export default function Profile() {
           phone: profileData.phone || "",
           bio: profileData.bio || "",
         });
+
+      if (profileData?.user_id) {
+        const [
+          { data: summaryData, error: summaryError },
+          { data: listingsData, error: listingsError },
+        ] = await Promise.all([
+          getReviewSummary(profileData.user_id),
+          getListingsByStudent(profileData.user_id),
+        ]);
+
+        if (!summaryError && summaryData) {
+          setReviewSummary(summaryData);
+        }
+
+        if (!listingsError && listingsData) {
+          const activeOnly = listingsData.filter((listing) => listing.status === "active");
+          setUserListings(activeOnly);
+        }
+      }
 
         const userSkillIds = await getProfileSkills(profileData.user_id);
         setSelectedSkills(userSkillIds);
@@ -236,7 +273,7 @@ try {
 
         <div className="row g-4">
           <div className="col-lg-4">
-            <div className="card shadow-sm">
+            <div className="card shadow-sm mb-3">
               <div className="card-body text-center">
                 <img
                   src={previewUrl || "https://placehold.co/140x140"}
@@ -261,37 +298,70 @@ try {
                 </div>
               </div>
             </div>
+           
+                  {profile?.role === "student" && (
+                    <div className="card shadow-sm">
+                      <div className="card-body">
+                        <h5 className="card-title mb-3">Skills</h5>
+
+                        <div className="d-flex flex-wrap gap-2">
+                          {allSkills.map((skill) => {
+                            const isSelected = selectedSkills.includes(skill.skill_id);
+
+                            return (
+                              <button
+                                key={skill.skill_id}
+                                type="button"
+                                className={`btn ${
+                                  isSelected ? "btn-primary" : "btn-outline-primary"
+                                }`}
+                                onClick={() => handleSkillToggle(skill.skill_id)}
+                              >
+                                {skill.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
           </div>
 
           <div className="col-lg-8">
-            <div className="card shadow-sm">
-              <div className="card-body">
-                <h5 className="card-title mb-3">Skills</h5>
+            {profile?.role === "student" && (
+            <div className="card shadow-sm mb-3">
+                <div className="card-body">
+                  <h5 className="card-title mb-3">Profile Summary</h5>
+                  <p className="mb-1"><strong>Average Rating:</strong> {reviewSummary.avg} / 5</p>
+                  <p className="mb-1"><strong>Total Reviews:</strong> {reviewSummary.count}</p>
+                  <p className="mb-2"><strong>Active Listings:</strong> {userListings.length}</p>
 
-                <div className="d-flex flex-wrap gap-2">
-                  {allSkills.map((skill) => {
-                    const isSelected = selectedSkills.includes(skill.skill_id);
-
-                    return (
-                      <button
-                        key={skill.skill_id}
-                        type="button"
-                        className={`btn ${
-                          isSelected ? "btn-primary" : "btn-outline-primary"
-                        }`}
-                        onClick={() => handleSkillToggle(skill.skill_id)}
+                  <div className="mb-4">
+                      <Link
+                        to={`/reviews?studentId=${profile?.user_id}`}
+                        className="text-decoration-none"
                       >
-                        {skill.name}
-                      </button>
-                    );
-                  })}
+                        View all reviews →
+                      </Link>
+                  </div>
+
+                  {userListings.length > 0 && (
+                    <>
+                      <h6 className="mb-2">Current Listings</h6>
+                      {userListings.map((listing) => (
+                        <div key={listing.listing_id} className="border rounded p-2 mb-2">
+                          <div className="fw-semibold">{listing.title}</div>
+                          <div className="small text-muted">
+                            ${listing.price_amount} ({listing.pricing_type}) · {listing.location_text || "Remote"}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               </div>
-            </div>
-          </div>
+            )}
 
-
-          <div className="col-lg-20">
             <div className="card shadow-sm">
               <div className="card-body">
                 <h5 className="card-title mb-3">Edit Profile Details</h5>
@@ -353,26 +423,6 @@ try {
                       </div>
                     </div>
 
-                    <div className="col-12">
-                      <label className="form-label">Skills</label>
-                      <div className="d-flex flex-wrap gap-2">
-                        {/* {allSkills.map((skill) => {
-                          const isSelected = selectedSkills.includes(skill.skill_id);
-
-                          return (
-                            <button
-                              key={skill.skill_id}
-                              type="button"
-                              className={`btn ${isSelected ? "btn-primary" : "btn-outline-primary"}`}
-                              onClick={() => handleSkillToggle(skill.skill_id)}
-                            >
-                              {skill.name}
-                            </button>
-                          );
-                        })} */}
-                      </div>
-                    </div>
-
                     <div className="col-12 mt-2">
                       <button type="submit" className="btn btn-primary px-4">
                         Save Changes
@@ -382,6 +432,12 @@ try {
                 </form>
               </div>
             </div>
+
+          </div>
+
+
+          <div className="col-lg-20">
+            
           </div>
         </div>
       </div>

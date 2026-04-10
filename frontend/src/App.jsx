@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { supabase } from "./supabaseconfig";
 import { setRoleForEmail } from "./providers/roleStore";
 import "bootstrap-icons/font/bootstrap-icons.css";
+import { getUserByEmail, insertUser } from "./services/supabaseapi";
 
 import Login from "./pages/login";
 import AdminDashboard from "./pages/admin/AdminDashboard";

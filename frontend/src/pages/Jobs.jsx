@@ -17,6 +17,10 @@ import {
   createConversation,
   sendMessage,
   createNotification,
+  doesConvoExist,
+  getUserById,
+  getReviewSummary,
+  getListingsByStudent,
 } from "../services/supabaseapi";
 
 /*
@@ -66,8 +70,6 @@ export default function Jobs() {
   const [messageModal, setMessageModal] = useState(null);
   const [messageBody, setMessageBody] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
-  const [deleteModal, setDeleteModal] = useState(null);
-  const [deleting, setDeleting] = useState(false);
 
   const [skillFilter, setSkillFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
@@ -91,6 +93,10 @@ export default function Jobs() {
     price_amount: "",
     selectedSkills: [],
   });
+
+  //In app error and success displays
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     if (user?.email) fetchData();
@@ -203,13 +209,17 @@ export default function Jobs() {
   };
 
   const sendHireRequest = async () => {
+    setError("");
+    setSuccess("");
     if (!dbUser || !hireModal) return;
     if (!hireForm.startDate || !hireForm.endDate) {
-      alert("Please set a start and end date.");
+      //alert("Please set a start and end date.");
+      setError("Please set a start and end data.");
       return;
     }
     if (new Date(hireForm.endDate) < new Date(hireForm.startDate)) {
-      alert("End date must be after start date.");
+      //alert("End date must be after start date.");
+      setError("End date must be after start date.");
       return;
     }
 
@@ -252,7 +262,8 @@ export default function Jobs() {
       setHireModal(null);
     } catch (err) {
       console.error("Failed to hire:", err);
-      alert("Failed to send hire request.");
+      //alert("Failed to send hire request.");
+      setError("Failed to send hire request");
     } finally {
       setHiring(false);
     }
@@ -264,11 +275,14 @@ export default function Jobs() {
   };
 
   const sendMessageToListing = async () => {
+    setError("");
+    setSuccess("");
     if (!dbUser || !messageModal) return;
 
     const recipientId = messageModal.users?.user_id;
     if (!recipientId) {
-      alert("Cannot message: listing has no associated user.");
+      //alert("Cannot message: listing has no associated user.");
+      setError("Cannot message: listing has no associated user.");
       return;
     }
 
@@ -303,13 +317,16 @@ export default function Jobs() {
       setMessageBody("");
     } catch (err) {
       console.error("Failed to message:", err);
-      alert("Failed to send message.");
+      //alert("Failed to send message.");
+      setError("Failed to send message");
     } finally {
       setSendingMessage(false);
     }
   };
 
   const handleDeleteListing = async () => {
+    setError("");
+    setSuccess("");
     if (!deleteModal) return;
     setDeleting(true);
     try {
@@ -319,15 +336,20 @@ export default function Jobs() {
       await fetchListings();
     } catch (err) {
       console.error("Failed to delete listing:", err);
-      alert("Failed to delete listing.");
+      //alert("Failed to delete listing.");
+      setError("Failed to delete listing");
     } finally {
       setDeleting(false);
     }
   };
 
   const handleCreateListing = async () => {
+    setError("");
+    setSuccess("");
     if (!newListing.title || !newListing.price_amount) {
+      //I'm keeping this one because it shows better while in a popup
       alert("Please fill in title and price.");
+      setError("Please fill in title and price");
       return;
     }
 
@@ -356,7 +378,8 @@ export default function Jobs() {
         await addSkillToListing(created.listing_id, skill_id);
       }
 
-      alert("Listing created!");
+      //alert("Listing created!");
+      setSuccess("Listing created");
       setShowCreateModal(false);
       setNewListing({
         title: "",
@@ -370,7 +393,8 @@ export default function Jobs() {
       await fetchMyListings(dbUser);
     } catch (err) {
       console.error("Failed to create listing:", err);
-      alert("Failed to create listing.");
+      //alert("Failed to create listing.");
+      setError("Failed to create listing");
     }
   };
 
@@ -439,6 +463,41 @@ export default function Jobs() {
         : [...prev.selectedSkills, skill_id],
     }));
   };
+  
+  
+
+  const openProfileModal = async (listing) => {
+  try {
+    const studentId = listing.student_id;
+    if (!studentId) return;
+
+    const [
+      { data: userData, error: userError },
+      { data: summaryData, error: summaryError },
+      { data: listingsData, error: listingsError },
+    ] = await Promise.all([
+      getUserById(studentId),
+      getReviewSummary(studentId),
+      getListingsByStudent(studentId),
+    ]);
+
+    if (userError) throw userError;
+    if (summaryError) throw summaryError;
+    if (listingsError) throw listingsError;
+
+    const activeListings = (listingsData || []).filter(
+      (item) => item.status === "active"
+    );
+
+    setProfileModal({
+      ...userData,
+      reviewSummary: summaryData,
+      activeListings,
+    });
+  } catch (err) {
+    console.error("Failed to load profile modal:", err);
+  } 
+};
 
   if (loading) {
     return (
@@ -862,12 +921,6 @@ export default function Jobs() {
 
                     <div className="col-md-6">
                       <label className="form-label">Location</label>
-                      <span
-                          title="Use precise city name with state initials, Eg: 'Oak Creek, WI' not 'Milwaukee'."
-                          style={{ cursor: "help" }}
-                        >
-                           *
-                        </span>
                       <input
                         className="form-control"
                         placeholder="e.g. Milwaukee, WI or Remote"
@@ -1189,12 +1242,11 @@ export default function Jobs() {
             className="modal fade show"
             style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
           >
-            <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-dialog modal-dialog-centered modal-lg">
               <div className="modal-content">
-
                 <div className="modal-header">
                   <h5 className="modal-title">
-                    {profileModal?.first_name} {profileModal?.last_name}
+                    {profileModal.first_name} {profileModal.last_name}
                   </h5>
                   <button
                     type="button"
@@ -1257,6 +1309,57 @@ export default function Jobs() {
                       </div>
                     </div>
                   )}
+
+                  {/* Review Summary */}
+                  <div className="mb-4">
+                    <h6 className="fw-bold mb-2">Reviews</h6>
+                    <p className="mb-0">
+                      Average Rating: {profileModal?.reviewSummary?.avg || 0} / 5
+                    </p>
+                    <p className="mb-0">
+                      Total Reviews: {profileModal?.reviewSummary?.count || 0}
+                    </p>
+
+                    <div className="mt-2">
+                      <button
+                        className="btn btn-link p-0 text-decoration-none"
+                        onClick={() => navigate(`/reviews?studentId=${profileModal.user_id}`)}
+                      >
+                        View all reviews →
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Active Listings */}
+                  <div className="mb-3">
+                    <h6 className="fw-bold">Active Listings</h6>
+
+                    {profileModal?.activeListings?.length > 0 ? (
+                      <div className="d-flex flex-column gap-2">
+                        {profileModal.activeListings.map((item) => (
+                          <button
+                            key={item.listing_id}
+                            type="button"
+                            className="border rounded p-2 text-start bg-white w-100"
+                            onClick={() => {
+                              setProfileModal(null); // close profile modal
+                              openHireModal({
+                                ...item,
+                                users: profileModal, // open profile modal
+                              });
+                            }}
+                          >
+                            <div className="fw-semibold">{item.title}</div>
+                            <div className="small text-muted">
+                              ${item.price_amount} ({item.pricing_type}) · {item.location_text || "Remote"}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted mb-0">No active listings right now.</p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="modal-footer">
@@ -1268,54 +1371,6 @@ export default function Jobs() {
                   </button>
                 </div>
 
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {deleteModal && (
-          <div
-            className="modal fade show"
-            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-          >
-            <div className="modal-dialog modal-dialog-centered">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title text-danger">Delete Job Posting</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setDeleteModal(null)}
-                  />
-                </div>
-
-                <div className="modal-body">
-                  <p>
-                    Are you sure you want to delete{" "}
-                    <strong>&ldquo;{deleteModal.title}&rdquo;</strong>?
-                  </p>
-                  <p className="text-muted small mb-0">
-                    Posted by {deleteModal.users?.first_name} {deleteModal.users?.last_name}. This
-                    will deactivate the listing and remove it from the job board.
-                  </p>
-                </div>
-
-                <div className="modal-footer">
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => setDeleteModal(null)}
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-danger"
-                    disabled={deleting}
-                    onClick={handleDeleteListing}
-                  >
-                    {deleting ? "Deleting..." : "Delete Listing"}
-                  </button>
-                </div>
               </div>
             </div>
           </div>

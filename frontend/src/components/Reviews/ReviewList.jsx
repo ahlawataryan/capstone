@@ -2,7 +2,10 @@ import { useState } from "react";
 import { Card, Button, Modal, Alert, Row, Col } from "react-bootstrap";
 import RatingStars from "./RatingStars";
 import { deleteReview, upsertReview } from "../../services/supabaseapi";
-
+/*
+The reviews page is weird. There are two ways to edit reviews, and they both work and look different
+One looks better with alerts, and the other looks better on the page
+*/
 export default function ReviewList({
   reviews = [],
   currentUserId,
@@ -13,6 +16,9 @@ export default function ReviewList({
   const [deletingReviewId, setDeletingReviewId] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const [editForm, setEditForm] = useState({
     comment: "",
@@ -75,6 +81,8 @@ export default function ReviewList({
   };
 
   const handleDelete = async (reviewId) => {
+    setError("");
+    setSuccess("");
     const confirmed = window.confirm("Are you sure you want to delete this review?");
     if (!confirmed) return;
 
@@ -86,6 +94,7 @@ export default function ReviewList({
 
     if (error) {
       alert(error.message || "Failed to delete review.");
+      setError("Failed to delete review");
       return;
     }
 
@@ -198,6 +207,8 @@ export default function ReviewList({
         </Modal.Header>
         <Modal.Body>
           {editError && <Alert variant="danger">{editError}</Alert>}
+          {error && <div className="alert alert-danger">{error}</div>}
+          {success && <div className="alert alert-success">{success}</div>}
 
           <Row>
             {renderSelect("Work Quality", "work_quality_rating")}

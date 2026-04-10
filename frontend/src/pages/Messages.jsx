@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { getUserByEmail } from "../services/supabaseapi";
 import ConversationList from "../components/Messages/ConversationList";
 import ConversationView from "../components/Messages/ConversationView";
-import NewConversationModal from "../components/Messages/NewConversationModal";
+//import NewConversationModal from "../components/Messages/NewConversationModal";
 import Navbar from "../components/Navbar";
 
 export default function Messages() {
@@ -46,13 +46,6 @@ export default function Messages() {
     <>
       <Navbar/>
       <div className="container py-4">
-        <div className="d-flex justify-content-between align-items-center mb-4">
-          <h2>Messages</h2>
-          <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
-            + New Message
-          </button>
-        </div>
-
         <div className="row g-3">
           {/* Conversation list on the left */}
           <div className="col-md-4">

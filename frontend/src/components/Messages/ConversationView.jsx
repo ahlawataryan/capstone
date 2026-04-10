@@ -10,6 +10,8 @@ export default function ConversationView({ dbUser, conversation }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     if (!conversation?.conversation_id) return;
@@ -62,6 +64,8 @@ export default function ConversationView({ dbUser, conversation }) {
   };
 
   const handleSend = async () => {
+    setError("");
+    setSuccess("");
     if (!newMessage.trim()) return;
     const body = newMessage.trim();
     const optimisticId = `optimistic-${Date.now()}`;
@@ -103,7 +107,8 @@ export default function ConversationView({ dbUser, conversation }) {
       console.error("Failed to send message:", err);
       setMessages(prev => prev.filter(m => m.message_id !== optimisticId));
       setNewMessage(body);
-      alert("Failed to send message.");
+      //alert("Failed to send message.");
+      setError("Failed to send message");
     } finally {
       setSending(false);
     }
@@ -115,7 +120,8 @@ export default function ConversationView({ dbUser, conversation }) {
   return (
     <div className="card d-flex flex-column" style={{ height: "600px" }}>
       <div className="card-header fw-bold">Conversation</div>
-
+      {error && <div className="alert alert-danger">{error}</div>}
+      {success && <div className="alert alert-success">{success}</div>}
       {/* Messages */}
       <div className="card-body overflow-auto flex-grow-1 d-flex flex-column gap-2">
         {messages.length === 0 ? (

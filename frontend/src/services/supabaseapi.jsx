@@ -265,6 +265,7 @@ export async function getStudentsBySkillId(skillId) {
     .eq("skill_id", skillId);
 }
 
+
 // ─────────────────────────────────────────────────
 // LISTINGS  (student service listings)
 // ─────────────────────────────────────────────────
@@ -917,4 +918,13 @@ export async function createNotification({ userId, type, channel = "in_app", mes
   return await supabase
     .from("notifications")
     .insert([{ user_id: userId, type, channel, message, status }]);
+}
+/*
+There's no reason for multiple conversations between the same user to exist. Checks if one exists before making a new one
+*/
+export async function doesConvoExist(senderId, receiverId) {
+  return await supabase 
+  .from("conversations")
+  .select(`recipient_user_id, initiator_user_id`)
+  .or(`and(initiator_user_id.eq.${senderId}, recipient_user_id.eq.${receiverId}), and(recipient_user_id.eq.${senderId}, initiator_user_id.eq.${receiverId}))`);
 }
