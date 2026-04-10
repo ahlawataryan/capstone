@@ -191,8 +191,7 @@ export async function setUserIcon(email, fileurl){
 Delete an image from storage using a url. May need to be an array as an argument.
 */
 export async function deleteIcon(fileurl){
-  const { data, error } = await supabase.storage.from('icons').remove(fileurl);
-  return { data, error };
+  return { data, error } = await supabase.storage.from('icons').remove(fileurl);
 }
 
 
@@ -309,12 +308,7 @@ export async function getActiveListings() {
 export async function getListingsByStudent(studentId) {
   return await supabase
     .from("listings")
-    .select(`
-      listing_id, title, description, status, location_text,
-      pricing_type, price_amount, created_at, student_id,
-      listingsskills(skills(skill_id, name)),
-      bookings(bookings_id, status)
-    `)
+    .select("*")
     .eq("student_id", studentId)
     .order("created_at", { ascending: false });
 }
