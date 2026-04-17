@@ -9,18 +9,17 @@ import {
 } from "../services/skillService";
 import {
   getUserByEmail,
-  updateUser,
   updateUserProfile,
   updateIcon,
   getIcon,
   setUserIcon,
-  deleteIcon,
   getReviewSummary,
   getListingsByStudent,
+  requestAccountDeletion,
 } from "../services/supabaseapi";
 
-
 const BIO_MAX = 1024;
+const DELETE_REASON_MAX = 500;
 
 function formatPhone(digits) {
   if (!digits) return "";
@@ -41,16 +40,8 @@ export default function Profile() {
     bio: "",
   });
 
-  const handleSkillToggle = (skillId) => {
-  setSelectedSkills((prev) =>
-    prev.includes(skillId)
-      ? prev.filter((id) => id !== skillId)
-      : [...prev, skillId]
-  );
-};
-
   const [previewUrl, setPreviewUrl] = useState("");
-  const [iconFile, setIconFile] = useState("");//Added to track the profile picture
+  const [iconFile, setIconFile] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [profile, setProfile] = useState(null);
@@ -66,74 +57,86 @@ export default function Profile() {
   });
 
   const [userListings, setUserListings] = useState([]);
-  const [role, setRole] = useState(null);
 
+  const [showDeleteRequestModal, setShowDeleteRequestModal] = useState(false);
+  const [deleteRequestReason, setDeleteRequestReason] = useState("");
+  const [deleteRequestLoading, setDeleteRequestLoading] = useState(false);
 
-  useEffect(() => {
-  const loadProfile = async () => {
-    if (!user?.email) return;
-
-    
-    try {
-      const { data: profileData, error } = await getUserByEmail(user.email);
-      if (error) throw error;
-      setProfile(profileData);
-
-      const skillsData = await getActiveSkills();
-      setAllSkills(skillsData);
-
-      if (profileData) {
-        setForm({
-          name: `${profileData.first_name || ""} ${profileData.last_name || ""}`.trim(),
-          email: profileData.email || user.email || "",
-          phone: profileData.phone || "",
-          bio: profileData.bio || "",
-        });
-
-      if (profileData?.user_id) {
-        const [
-          { data: summaryData, error: summaryError },
-          { data: listingsData, error: listingsError },
-        ] = await Promise.all([
-          getReviewSummary(profileData.user_id),
-          getListingsByStudent(profileData.user_id),
-        ]);
-
-        if (!summaryError && summaryData) {
-          setReviewSummary(summaryData);
-        }
-
-        if (!listingsError && listingsData) {
-          const activeOnly = listingsData.filter((listing) => listing.status === "active");
-          setUserListings(activeOnly);
-        }
-      }
-
-        const userSkillIds = await getProfileSkills(profileData.user_id);
-        setSelectedSkills(userSkillIds);
-      } else {
-        setForm({
-          name: user.name || "",
-          email: user.email || "",
-          phone: "",
-          bio: "",
-        });
-      }
-      if(profileData.icon_url != null || profileData.icon_url == ""){
-        const {data: iconData} = getIcon(profileData.icon_url);//icon_url is null by default
-        setPreviewUrl(iconData.publicUrl || "");
-      }
-      else {
-        setPreviewUrl("");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Could not load profile.");
-    }
+  const handleSkillToggle = (skillId) => {
+    setSelectedSkills((prev) =>
+      prev.includes(skillId)
+        ? prev.filter((id) => id !== skillId)
+        : [...prev, skillId]
+    );
   };
 
-  loadProfile();
-}, [user]);
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user?.email) return;
+
+      try {
+        const { data: profileData, error } = await getUserByEmail(user.email);
+        if (error) throw error;
+
+        setProfile(profileData);
+
+        const skillsData = await getActiveSkills();
+        setAllSkills(skillsData);
+
+        if (profileData) {
+          setForm({
+            name: `${profileData.first_name || ""} ${profileData.last_name || ""}`.trim(),
+            email: profileData.email || user.email || "",
+            phone: profileData.phone || "",
+            bio: profileData.bio || "",
+          });
+
+          if (profileData?.user_id) {
+            const [
+              { data: summaryData, error: summaryError },
+              { data: listingsData, error: listingsError },
+            ] = await Promise.all([
+              getReviewSummary(profileData.user_id),
+              getListingsByStudent(profileData.user_id),
+            ]);
+
+            if (!summaryError && summaryData) {
+              setReviewSummary(summaryData);
+            }
+
+            if (!listingsError && listingsData) {
+              const activeOnly = listingsData.filter(
+                (listing) => listing.status === "active"
+              );
+              setUserListings(activeOnly);
+            }
+          }
+
+          const userSkillIds = await getProfileSkills(profileData.user_id);
+          setSelectedSkills(userSkillIds);
+        } else {
+          setForm({
+            name: user.name || "",
+            email: user.email || "",
+            phone: "",
+            bio: "",
+          });
+        }
+
+        if (profileData?.icon_url) {
+          const { data: iconData } = getIcon(profileData.icon_url);
+          setPreviewUrl(iconData.publicUrl || "");
+        } else {
+          setPreviewUrl("");
+        }
+      } catch (err) {
+        console.error(err);
+        setError("Could not load profile.");
+      }
+    };
+
+    loadProfile();
+  }, [user]);
 
   const handleChange = (e) => {
     setError("");
@@ -166,9 +169,9 @@ export default function Profile() {
       setError("Image must be under 5MB.");
       return;
     }
-    //Tracking the current profile picture. I don't think the data is correct
+
     setIconFile(file);
-    //New image saved in PreviewUrl. Add this to database in save section
+
     const reader = new FileReader();
     reader.onloadend = () => {
       setPreviewUrl(reader.result);
@@ -196,71 +199,85 @@ export default function Profile() {
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ");
 
-      let updatedProfile;
+      const { data: updatedProfile, error: updateError } = await updateUserProfile(
+        profile.user_id,
+        {
+          first_name: firstName,
+          last_name: lastName,
+          phone: form.phone,
+          bio: form.bio,
+        }
+      );
 
-try {
-  console.log("Calling updateUserProfile...");
-  const { data, error: updateError } = await updateUserProfile(profile.user_id, {
-    first_name: firstName,
-    last_name: lastName,
-    phone: form.phone,
-    bio: form.bio,
-  });
-
-  if (updateError) throw updateError;
-
-  updatedProfile = data;
-
-  if (!updatedProfile) {
-    setError("Could not save profile changes.");
-    return;
-  }
-
-  console.log("updatedProfile:", updatedProfile);
-  //Update profile picture
-  //Checking if there is a new image. icon_url is null by default
-  let userUrl = profile.user_id + ".jpg";
-  if(profile.icon_url != previewUrl){
-    const {error : updateIconError} = updateIcon(userUrl, iconFile);
-    if(updateIconError) throw updateIconError;
-    const {error : setUserIconError} = setUserIcon(profile.email, userUrl);
-    if(setUserIconError) throw setUserIconError;
-  }
-} catch (err) {
-  console.error("updateUserProfile failed:", err);
-  setError("updateUserProfile failed.");
-  return;
-}
-
+      if (updateError) throw updateError;
       if (!updatedProfile) {
         setError("Could not save profile changes.");
         return;
       }
 
-      try {
-        console.log("Saving skills with id:", updatedProfile.user_id);
-        console.log("selectedSkills:", selectedSkills);
+      const userUrl = `${profile.user_id}.jpg`;
 
-        console.log("updatedProfile:", updatedProfile);
-        console.log("user_id:", updatedProfile.user_id);
+      if (iconFile) {
+        const { error: updateIconError } = await updateIcon(userUrl, iconFile);
+        if (updateIconError) throw updateIconError;
 
-        await saveProfileSkills(updatedProfile.user_id, selectedSkills);
-        console.log("saveProfileSkills worked");
-      } catch (err) {
-        console.error("saveProfileSkills failed:", err);
-        setError("saveProfileSkills failed.");
-        return;
+        const { error: setUserIconError } = await setUserIcon(profile.email, userUrl);
+        if (setUserIconError) throw setUserIconError;
       }
+
+      await saveProfileSkills(updatedProfile.user_id, selectedSkills);
 
       setProfile(updatedProfile);
       setSuccess("Profile changes saved successfully.");
     } catch (err) {
-      console.error("Outer catch:", err);
+      console.error(err);
       setError("Could not save profile changes.");
     }
   };
 
-  
+  const handleRequestAccountDeletion = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!profile?.user_id) {
+      setError("Could not find your account.");
+      return;
+    }
+
+    if (!deleteRequestReason.trim()) {
+      setError("Please provide a reason for deleting your account.");
+      return;
+    }
+
+    try {
+      setDeleteRequestLoading(true);
+
+      const { error } = await requestAccountDeletion(
+        profile.user_id,
+        deleteRequestReason.trim()
+      );
+
+      if (error) throw error;
+
+      setProfile((prev) => ({
+        ...prev,
+        delete_requested: true,
+        delete_request_reason: deleteRequestReason.trim(),
+        delete_request_status: "pending",
+        delete_request_review_note: null,
+        account_status: "deletion_requested",
+      }));
+
+      setSuccess("Your account deletion request has been submitted for admin review.");
+      setShowDeleteRequestModal(false);
+      setDeleteRequestReason("");
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Could not submit account deletion request.");
+    } finally {
+      setDeleteRequestLoading(false);
+    }
+  };
 
   return (
     <>
@@ -298,61 +315,71 @@ try {
                 </div>
               </div>
             </div>
-           
-                  {profile?.role === "student" && (
-                    <div className="card shadow-sm">
-                      <div className="card-body">
-                        <h5 className="card-title mb-3">Skills</h5>
 
-                        <div className="d-flex flex-wrap gap-2">
-                          {allSkills.map((skill) => {
-                            const isSelected = selectedSkills.includes(skill.skill_id);
+            {profile?.role === "student" && (
+              <div className="card shadow-sm">
+                <div className="card-body">
+                  <h5 className="card-title mb-3">Skills</h5>
 
-                            return (
-                              <button
-                                key={skill.skill_id}
-                                type="button"
-                                className={`btn ${
-                                  isSelected ? "btn-primary" : "btn-outline-primary"
-                                }`}
-                                onClick={() => handleSkillToggle(skill.skill_id)}
-                              >
-                                {skill.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  <div className="d-flex flex-wrap gap-2">
+                    {allSkills.map((skill) => {
+                      const isSelected = selectedSkills.includes(skill.skill_id);
+
+                      return (
+                        <button
+                          key={skill.skill_id}
+                          type="button"
+                          className={`btn ${
+                            isSelected ? "btn-primary" : "btn-outline-primary"
+                          }`}
+                          onClick={() => handleSkillToggle(skill.skill_id)}
+                        >
+                          {skill.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="col-lg-8">
             {profile?.role === "student" && (
-            <div className="card shadow-sm mb-3">
+              <div className="card shadow-sm mb-3">
                 <div className="card-body">
                   <h5 className="card-title mb-3">Profile Summary</h5>
-                  <p className="mb-1"><strong>Average Rating:</strong> {reviewSummary.avg} / 5</p>
-                  <p className="mb-1"><strong>Total Reviews:</strong> {reviewSummary.count}</p>
-                  <p className="mb-2"><strong>Active Listings:</strong> {userListings.length}</p>
+                  <p className="mb-1">
+                    <strong>Average Rating:</strong> {reviewSummary.avg} / 5
+                  </p>
+                  <p className="mb-1">
+                    <strong>Total Reviews:</strong> {reviewSummary.count}
+                  </p>
+                  <p className="mb-2">
+                    <strong>Active Listings:</strong> {userListings.length}
+                  </p>
 
                   <div className="mb-4">
-                      <Link
-                        to={`/reviews?studentId=${profile?.user_id}`}
-                        className="text-decoration-none"
-                      >
-                        View all reviews →
-                      </Link>
+                    <Link
+                      to={`/reviews?studentId=${profile?.user_id}`}
+                      className="text-decoration-none"
+                    >
+                      View all reviews →
+                    </Link>
                   </div>
 
                   {userListings.length > 0 && (
                     <>
                       <h6 className="mb-2">Current Listings</h6>
                       {userListings.map((listing) => (
-                        <div key={listing.listing_id} className="border rounded p-2 mb-2">
+                        <div
+                          key={listing.listing_id}
+                          className="border rounded p-2 mb-2"
+                        >
                           <div className="fw-semibold">{listing.title}</div>
                           <div className="small text-muted">
-                            ${listing.price_amount} ({listing.pricing_type}) · {listing.location_text || "Remote"}
+                            ${listing.price_amount} ({listing.pricing_type}) ·{" "}
+                            {listing.location_text || "Remote"}
                           </div>
                         </div>
                       ))}
@@ -362,12 +389,32 @@ try {
               </div>
             )}
 
-            <div className="card shadow-sm">
+            <div className="card shadow-sm mb-3">
               <div className="card-body">
                 <h5 className="card-title mb-3">Edit Profile Details</h5>
 
                 {error && <div className="alert alert-danger">{error}</div>}
                 {success && <div className="alert alert-success">{success}</div>}
+
+                {profile?.delete_request_status === "pending" && (
+                  <div className="alert alert-warning">
+                    Your account deletion request is currently under admin review.
+                  </div>
+                )}
+
+                {profile?.delete_request_status === "denied" && (
+                  <div className="alert alert-danger">
+                    {profile?.delete_request_review_note ||
+                      "Your account deletion request was denied or closed by the admin."}
+                  </div>
+                )}
+
+                {profile?.delete_request_status === "approved" && (
+                  <div className="alert alert-success">
+                    {profile?.delete_request_review_note ||
+                      "Your account deletion request was approved."}
+                  </div>
+                )}
 
                 <form onSubmit={handleSave}>
                   <div className="row g-20">
@@ -418,7 +465,11 @@ try {
                         onChange={handleChange}
                         maxLength={BIO_MAX}
                       />
-                      <div className={`form-text text-end ${form.bio.length >= BIO_MAX ? "text-danger" : ""}`}>
+                      <div
+                        className={`form-text text-end ${
+                          form.bio.length >= BIO_MAX ? "text-danger" : ""
+                        }`}
+                      >
                         {form.bio.length} / {BIO_MAX} characters
                       </div>
                     </div>
@@ -433,14 +484,119 @@ try {
               </div>
             </div>
 
+            <div className="card shadow-sm border-danger">
+              <div className="card-body">
+                <h5 className="card-title text-danger mb-3">Danger Zone</h5>
+                <p className="text-muted mb-3">
+                  You can request account deletion here. Your request will be sent
+                  to the admin for review before the account is removed.
+                </p>
+
+                {profile?.delete_requested || profile?.delete_request_status === "pending" ? (
+                  <div className="alert alert-warning mb-0">
+                    You have already submitted an account deletion request.
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-outline-danger"
+                    onClick={() => {
+                      setError("");
+                      setSuccess("");
+                      setShowDeleteRequestModal(true);
+                    }}
+                  >
+                    Request Account Deletion
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
-
-          <div className="col-lg-20">
-            
-          </div>
+          <div className="col-lg-20"></div>
         </div>
       </div>
+
+      {showDeleteRequestModal && (
+        <div
+          className="modal d-block"
+          tabIndex="-1"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title text-danger">
+                  Confirm Account Deletion Request
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowDeleteRequestModal(false);
+                    setDeleteRequestReason("");
+                  }}
+                  disabled={deleteRequestLoading}
+                />
+              </div>
+
+              <div className="modal-body">
+                <p className="mb-3">
+                  Are you sure you want to request account deletion? This action
+                  will be sent to the admin for review.
+                </p>
+
+                <div className="mb-3">
+                  <label className="form-label fw-semibold">
+                    Reason for deletion
+                  </label>
+                  <textarea
+                    className="form-control"
+                    rows="4"
+                    placeholder="Please tell us why you want to delete your account"
+                    value={deleteRequestReason}
+                    onChange={(e) =>
+                      setDeleteRequestReason(
+                        e.target.value.slice(0, DELETE_REASON_MAX)
+                      )
+                    }
+                    maxLength={DELETE_REASON_MAX}
+                  />
+                  <div className="form-text text-end">
+                    {deleteRequestReason.length} / {DELETE_REASON_MAX}
+                  </div>
+                </div>
+
+                <div className="alert alert-warning mb-0">
+                  Please confirm carefully so this is not submitted by accident.
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowDeleteRequestModal(false);
+                    setDeleteRequestReason("");
+                  }}
+                  disabled={deleteRequestLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={handleRequestAccountDeletion}
+                  disabled={deleteRequestLoading}
+                >
+                  {deleteRequestLoading ? "Submitting..." : "Yes, Request Deletion"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

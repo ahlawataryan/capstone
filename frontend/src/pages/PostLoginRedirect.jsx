@@ -6,17 +6,12 @@ import {
   getSignupRole,
   setRoleForEmail,
 } from "../providers/roleStore";
-/*
-Determine what to load after auth0 handles login
-Sign up automatically leads to login, so auth0 covers both
 
-Basic account information uses localStorage. Functions can be found in roleStore.js
-*/
 export default function PostLoginRedirect() {
   const navigate = useNavigate();
-  const { user, isAuthenticated, isLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading, logout } = useAuth0();
 
-  const ADMIN_EMAILS = ["test@uwm.edu"];//While not a password, is still somewhat risky
+  const ADMIN_EMAILS = ["test@uwm.edu"];
 
   useEffect(() => {
     const redirectUser = async () => {
@@ -24,21 +19,30 @@ export default function PostLoginRedirect() {
 
       const email = (user?.email || "").toLowerCase();
 
-      if (email && ADMIN_EMAILS.includes(email)) {
-        navigate("/admin", { replace: true });
+      if (!email) {
+        logout({ logoutParams: { returnTo: window.location.origin } });
         return;
       }
 
-      if (!email) {
-        navigate("/client/dashboard", { replace: true });
+      // Admin bypass
+      if (ADMIN_EMAILS.includes(email)) {
+        navigate("/admin", { replace: true });
         return;
       }
 
       try {
         const { data, error } = await getUserByEmail(email);
 
-        if (!error && data?.role) {
-          setRoleForEmail(email, data.role);//localStorage set role
+        // Existing user found in DB
+        if (!error && data) {
+          // Block deleted/inactive users
+          if (data.is_active === false || data.account_status === "deleted") {
+            alert("Your account has been deleted or disabled.");
+            logout({ logoutParams: { returnTo: window.location.origin } });
+            return;
+          }
+
+          setRoleForEmail(email, data.role);
 
           if (data.role === "student") {
             navigate("/student/dashboard", { replace: true });
@@ -55,28 +59,35 @@ export default function PostLoginRedirect() {
             return;
           }
         }
-      } catch (err) {
-        console.error("Failed to fetch role from database:", err);
-      }
 
-      const signupRole = getSignupRole();
-      if (signupRole === "student" || signupRole === "client") {
-        setRoleForEmail(email, signupRole);
+        // No DB row found:
+        // only allow this if it is truly a signup flow
+        const signupRole = getSignupRole();
 
-        if (signupRole === "student") {
-          navigate("/student/dashboard", { replace: true });
+        if (signupRole === "student" || signupRole === "client") {
+          setRoleForEmail(email, signupRole);
+
+          if (signupRole === "student") {
+            navigate("/student/dashboard", { replace: true });
+            return;
+          }
+
+          navigate("/client/dashboard", { replace: true });
           return;
         }
 
-        navigate("/client/dashboard", { replace: true });
-        return;
+        // If not signup and no user exists, do not allow access
+        alert("Your account does not exist or has been removed.");
+        logout({ logoutParams: { returnTo: window.location.origin } });
+      } catch (err) {
+        console.error("Failed to fetch role from database:", err);
+        alert("There was a problem checking your account.");
+        logout({ logoutParams: { returnTo: window.location.origin } });
       }
-
-      navigate("/client/dashboard", { replace: true });
     };
 
     redirectUser();
-  }, [isLoading, isAuthenticated, user, navigate]);
+  }, [isLoading, isAuthenticated, user, navigate, logout]);
 
   return <div className="container py-4">Redirecting...</div>;
 }
