@@ -13,6 +13,7 @@ import {
   sendAdminMessageToUser,
   resolveListingReport,
 } from "../../services/supabaseapi.jsx";
+import { deleteAuthUserByEmail } from "../../services/authmanagementapi.jsx";
 
 export default function AdminDashboard() {
   const { user } = useAuth0();
@@ -121,6 +122,7 @@ export default function AdminDashboard() {
         result = await deactivateUser(reviewTarget.user_id);
       } else if (reviewAction === "approve_delete_request") {
         result = await hardDeleteUserAccount(reviewTarget.user_id);
+        deleteAuthUserByEmail(reviewTarget.email);
       } else if (reviewAction === "reject_delete_request") {
         const adminEmail = (user?.email || "").toLowerCase();
         const { data: adminDbUser, error: adminError } = await getUserByEmail(adminEmail);
