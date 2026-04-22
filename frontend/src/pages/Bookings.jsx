@@ -376,7 +376,7 @@ export default function Bookings() {
                       </div>
                       <div className="card-body">
                         <p className="text-muted small mb-1">
-                          Student: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                          To: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
                         </p>
                         {(() => {
                           try {
@@ -497,11 +497,11 @@ export default function Bookings() {
                         <div className="card-body">
                           {booking.customer_id === dbUser?.user_id ? (
                             <p className="text-muted small mb-1">
-                              Student: {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
+                              Booked With: {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
                             </p>
                           ) : (
                             <p className="text-muted small mb-1">
-                              Client: {booking.users?.first_name} {booking.users?.last_name}
+                              Requested By: {booking.users?.first_name} {booking.users?.last_name}
                             </p>
                           )}
                           <p className="text-muted small mb-1">
