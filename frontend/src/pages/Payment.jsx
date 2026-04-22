@@ -31,18 +31,26 @@ export default function Payment() {
         setDbUser(profile);
         setUserRole(profile.role);
 
-        let result;
         if (profile.role === "client") {
-          result = await getPaymentsByClient(profile.user_id);
+          const result = await getPaymentsByClient(profile.user_id);
+          if (result.error) throw result.error;
+          setPayments(result.data || []);
         } else if (profile.role === "student") {
-          result = await getPaymentsForStudent(profile.user_id);
+          const [asClient, asStudent] = await Promise.all([
+            getPaymentsByClient(profile.user_id),
+            getPaymentsForStudent(profile.user_id),
+          ]);
+
+          if (asClient.error) throw asClient.error;
+          if (asStudent.error) throw asStudent.error;
+
+          setPayments([
+            ...(asClient.data || []),
+            ...(asStudent.data || []),
+          ]);
         } else {
-          result = { data: [] };
+          setPayments([]);
         }
-
-        if (result.error) throw result.error;
-
-        setPayments(result.data || []);
       } catch (err) {
         console.error("Failed to load payments:", err);
         setError("Failed to load payment history.");
