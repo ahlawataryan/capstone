@@ -4,29 +4,39 @@ const cors = require("cors");
 const Database = require("better-sqlite3");
 const jwt = require("jsonwebtoken");
 const jwksRsa = require("jwks-rsa");
+const ManagementClient = require("auth0");
+process.loadEnvFile();
 
 const app = express();
+const corsOptions = {
+  origin: 'http://localhost:5173',
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
 app.use(express.json());
-app.use(
-  cors({
-    origin: process.env.CLIENT_ORIGIN,
-    credentials: true,
-  })
-);
+app.use(cors(corsOptions));
 
-// --- SQLite setup ---
-const db = new Database("app.db");
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  auth0_sub TEXT UNIQUE NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('admin','client','student')),
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-`);
+//http://localhost:5173/api/authmgt
+app.post("/api/authmgt", (req, res) => {
+  const toDelete = req.body.email;
+  const client = new ManagementClient({
+    domain: 'dev-6qyiyqksmtwrjpbi.auth0.com',
+    clientId: process.env.AUTH0_MANAGEMENT_CLIENT_ID,
+    clientSecret: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET
+  });
+  let user = await client.users.listUsersByEmail({
+    fields: "fields",
+    include_fields: true,
+    email: toDelete,
+  });
+  if(user){
+    await client.users.delete(user.user_id);
+  }
+});
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
+//Pretty sure this is all garbage
 // --- Auth0 JWT verification ---
 const jwksClient = jwksRsa.expressJwtSecret({
   cache: true,
