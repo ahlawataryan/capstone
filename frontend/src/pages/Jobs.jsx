@@ -624,7 +624,9 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-md-4">
-                    <label className="form-label">Maximum Pay ($)</label>
+                    <label className="form-label">
+                      Maximum Pay ($)
+                    </label>
                     <input
                       className="form-control"
                       type="number"
@@ -635,7 +637,9 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-md-4">
-                    <label className="form-label">Posted After</label>
+                    <label className="form-label">
+                      Posted After
+                    </label>
                     <input
                       className="form-control"
                       type="date"
@@ -645,7 +649,9 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-md-4">
-                    <label className="form-label">Pricing Type</label>
+                    <label className="form-label">
+                      Pricing Type
+                    </label>
                     <select
                       className="form-select"
                       value={pricingType}
@@ -901,7 +907,10 @@ export default function Jobs() {
                 <div className="modal-body">
                   <div className="row g-3">
                     <div className="col-12">
-                      <label className="form-label">Title *</label>
+                      <label className="form-label">
+                        Title *{" "}
+                        <span title="Keep it short and specific. Preferrably add neighborhood name here if in Milwaukee proper" style={{ cursor: "help" }}>?</span>
+                      </label>
                       <input
                         className="form-control"
                         placeholder="e.g. Pet Sitter Available for Weekend Gigs"
@@ -916,7 +925,10 @@ export default function Jobs() {
                     </div>
 
                     <div className="col-12">
-                      <label className="form-label">Description</label>
+                      <label className="form-label">
+                        Description{" "}
+                        <span title="Longer descriptions are preferred for more clarity." style={{ cursor: "help" }}>?</span>
+                      </label>
                       <textarea
                         className="form-control"
                         rows={3}
@@ -932,7 +944,10 @@ export default function Jobs() {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label">Location</label>
+                      <label className="form-label">
+                        Location{" "}
+                        <span title="Use precise city name with state initials. Eg: 'Oak Creek, WI' not 'Milwaukee' or 'Mke area'. Use 'Remote' if the work can be done online." style={{ cursor: "help" }}>?</span>
+                      </label>
                       <input
                         className="form-control"
                         placeholder="e.g. Milwaukee, WI or Remote"
@@ -947,7 +962,9 @@ export default function Jobs() {
                     </div>
 
                     <div className="col-md-3">
-                      <label className="form-label">Pricing Type *</label>
+                      <label className="form-label">
+                        Pricing Type *{" "}
+                      </label>
                       <select
                         className="form-select"
                         value={newListing.pricing_type}
@@ -964,7 +981,9 @@ export default function Jobs() {
                     </div>
 
                     <div className="col-md-3">
-                      <label className="form-label">Price ($) *</label>
+                      <label className="form-label">
+                        Price ($) *{" "}
+                      </label>
                       <input
                         className="form-control"
                         type="number"
@@ -980,7 +999,10 @@ export default function Jobs() {
                     </div>
 
                     <div className="col-12">
-                      <label className="form-label">Your Skills</label>
+                      <label className="form-label">
+                        Your Skills{" "}
+                        <span title="Please learn how to spell." style={{ cursor: "help" }}>?</span>
+                      </label>
                       {studentSkills.length === 0 ? (
                         <p className="text-muted small mb-0">
                           You haven't added any skills to your profile yet.{" "}
@@ -1082,7 +1104,9 @@ export default function Jobs() {
                 <div className="modal-body">
                   <div className="row g-3">
                     <div className="col-12">
-                      <label className="form-label">Title *</label>
+                      <label className="form-label">
+                        Title *{" "}
+                      </label>
                       <input
                         className="form-control"
                         value={editModal.title}
@@ -1090,7 +1114,10 @@ export default function Jobs() {
                       />
                     </div>
                     <div className="col-12">
-                      <label className="form-label">Description</label>
+                      <label className="form-label">
+                        Description{" "}
+                        <span title="Keep it short and specific. Preferrably add neighborhood name here if in Milwaukee proper" style={{ cursor: "help" }}>?</span>
+                      </label>
                       <textarea
                         className="form-control"
                         rows={3}
@@ -1099,7 +1126,10 @@ export default function Jobs() {
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label">Location</label>
+                      <label className="form-label">
+                        Location{" "}
+                        <span title="Use precise city name with state initials. Eg: 'Oak Creek, WI' not 'Milwaukee' or 'Mke area'. Use 'Remote' if the work can be done online." style={{ cursor: "help" }}>?</span>
+                      </label>
                       <input
                         className="form-control"
                         value={editModal.location_text}
@@ -1107,7 +1137,9 @@ export default function Jobs() {
                       />
                     </div>
                     <div className="col-md-3">
-                      <label className="form-label">Pricing Type *</label>
+                      <label className="form-label">
+                        Pricing Type *{" "}
+                      </label>
                       <select
                         className="form-select"
                         value={editModal.pricing_type}
@@ -1118,7 +1150,9 @@ export default function Jobs() {
                       </select>
                     </div>
                     <div className="col-md-3">
-                      <label className="form-label">Price ($) *</label>
+                      <label className="form-label">
+                        Price ($) *{" "}
+                      </label>
                       <input
                         className="form-control"
                         type="number"
@@ -1223,7 +1257,10 @@ export default function Jobs() {
 
                   <div className="row g-3">
                     <div className="col-12">
-                      <label className="form-label">Agreed Price ($) *</label>
+                      <label className="form-label">
+                        Agreed Price ($) *{" "}
+                        <span title="This can differ from the listed price if you've negotiated a different rate. Both parties are committing to this amount." style={{ cursor: "help" }}>*</span>
+                      </label>
                       <input
                         className="form-control"
                         type="number"
@@ -1239,7 +1276,10 @@ export default function Jobs() {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label">Start Date *</label>
+                      <label className="form-label">
+                        Start Date *{" "}
+                        <span title="The date you expect the student to begin work. Make sure you've confirmed availability with the student beforehand." style={{ cursor: "help" }}>*</span>
+                      </label>
                       <input
                         className="form-control"
                         type="date"
@@ -1254,7 +1294,10 @@ export default function Jobs() {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label">End Date *</label>
+                      <label className="form-label">
+                        End Date *{" "}
+                        <span title="The date the job should be completed. Must be on or after the start date." style={{ cursor: "help" }}>*</span>
+                      </label>
                       <input
                         className="form-control"
                         type="date"
