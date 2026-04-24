@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import {
   getUserByEmail,
@@ -16,19 +16,25 @@ import {
   sendMessage,
   createNotification,
   deactivateListing,
+  createListingReport,
+  createUserReport,
+  getReviewByReviewerAndStudent,
 } from "../services/supabaseapi";
+
 /*
-Component to handle bookings. Very complicated
-Handles the basics of bookings like creating and getting
-Additionally covers some parts of messaging
+Component to handle bookings.
+Handles booking requests, active bookings, cancellations, reports,
+and review entry after a booking has been accepted.
 */
+
 const STATUS_BADGE = {
-  pending:   "bg-warning text-dark",
-  accepted:  "bg-success",
-  declined:  "bg-danger",
+  pending: "bg-warning text-dark",
+  accepted: "bg-success",
+  declined: "bg-danger",
   cancelled: "bg-secondary",
   confirmed: "bg-success",
   completed: "bg-primary",
+  expired: "bg-secondary",
 };
 
 function StatusBadge({ status }) {
@@ -41,7 +47,9 @@ function StatusBadge({ status }) {
 
 export default function Bookings() {
   const { user } = useAuth0();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
   const [dbUser, setDbUser] = useState(null);
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,84 +61,133 @@ export default function Bookings() {
   const [clientSentRequests, setClientSentRequests] = useState([]);
   const [clientBookings, setClientBookings] = useState([]);
 
+  const [reviewStatusByBooking, setReviewStatusByBooking] = useState({});
+
   const [activeTab, setActiveTab] = useState("sent");
   const [actionLoading, setActionLoading] = useState(null);
+
   const [cancelModal, setCancelModal] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
 
-  // Modal that asks the student whether to keep the listing open for others
-  // or deactivate it when they accept a hire request.
   const [acceptModal, setAcceptModal] = useState(null);
   const [keepListingActive, setKeepListingActive] = useState(true);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  const [reportModal, setReportModal] = useState(null);   // { type: "user"|"listing", target, listingId?, listingOwnerId? }
+  const [reportModal, setReportModal] = useState(null);
   const [reportReason, setReportReason] = useState("");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
 
-  // Load data on mount
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
   useEffect(() => {
     if (user?.email) fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Handle bookingId and tab navigation from URL parameters
   useEffect(() => {
     if (!loading && dbUser && role) {
-      const bookingId = searchParams.get('bookingId');
-      const tab = searchParams.get('tab');
+      const bookingId = searchParams.get("bookingId");
+      const tab = searchParams.get("tab");
 
       if (bookingId) {
-        // Find which tab contains this booking and navigate to it
-        if (role === 'student') {
-          // Check sent requests
-          const sentReq = sentRequests.find(r => r.request_id === parseInt(bookingId));
+        const targetId = parseInt(bookingId, 10);
+
+        if (role === "student") {
+          const sentReq = sentRequests.find((r) => r.request_id === targetId);
           if (sentReq) {
-            setActiveTab('sent');
+            setActiveTab("sent");
             return;
           }
-          // Check received requests
-          const receivedReq = receivedRequests.find(r => r.request_id === parseInt(bookingId));
+
+          const receivedReq = receivedRequests.find((r) => r.request_id === targetId);
           if (receivedReq) {
-            setActiveTab('received');
+            setActiveTab("received");
             return;
           }
-          // Check active bookings
-          const booking = studentBookings.find(b => b.bookings_id === parseInt(bookingId));
+
+          const booking = studentBookings.find((b) => b.bookings_id === targetId);
           if (booking) {
-            setActiveTab('active');
+            setActiveTab("active");
             return;
           }
         } else {
-          // Client role - check sent requests
-          const sentReq = clientSentRequests.find(r => r.request_id === parseInt(bookingId));
+          const sentReq = clientSentRequests.find((r) => r.request_id === targetId);
           if (sentReq) {
-            setActiveTab('sent');
+            setActiveTab("sent");
             return;
           }
-          // Check active bookings
-          const booking = clientBookings.find(b => b.bookings_id === parseInt(bookingId));
+
+          const booking = clientBookings.find((b) => b.bookings_id === targetId);
           if (booking) {
-            setActiveTab('active');
+            setActiveTab("active");
             return;
           }
         }
       } else if (tab) {
-        // Navigate to specific tab if provided
-        if (role === 'student' && ['sent', 'received', 'active'].includes(tab)) {
+        if (role === "student" && ["sent", "received", "active"].includes(tab)) {
           setActiveTab(tab);
-        } else if (role === 'client' && ['sent', 'active'].includes(tab)) {
+        } else if (role === "client" && ["sent", "active"].includes(tab)) {
           setActiveTab(tab);
         }
       }
     }
-  }, [searchParams, loading, dbUser, role, sentRequests, receivedRequests, studentBookings, clientSentRequests, clientBookings]);
+  }, [
+    searchParams,
+    loading,
+    dbUser,
+    role,
+    sentRequests,
+    receivedRequests,
+    studentBookings,
+    clientSentRequests,
+    clientBookings,
+  ]);
 
-  // ── Report handlers ─────────────────────────────────────────────
+  useEffect(() => {
+    if (role === "client" && dbUser?.user_id && clientBookings.length > 0) {
+      fetchReviewStatuses(clientBookings, dbUser.user_id);
+    } else {
+      setReviewStatusByBooking({});
+    }
+  }, [role, dbUser, clientBookings]);
+
+  const fetchReviewStatuses = async (bookings, currentUserId) => {
+    try {
+      const relevantBookings = bookings.filter((booking) => {
+        const studentId = booking.listings?.users?.user_id;
+        return (
+          booking.customer_id === currentUserId &&
+          studentId &&
+          (booking.status === "confirmed" || booking.status === "completed")
+        );
+      });
+
+      const entries = await Promise.all(
+        relevantBookings.map(async (booking) => {
+          const studentId = booking.listings?.users?.user_id;
+
+          const { data } = await getReviewByReviewerAndStudent(currentUserId, studentId);
+
+          return [
+            booking.bookings_id,
+            {
+              canReview: true,
+              hasReview: !!data,
+              reviewId: data?.review_id || null,
+              studentId,
+            },
+          ];
+        })
+      );
+
+      setReviewStatusByBooking(Object.fromEntries(entries));
+    } catch (err) {
+      console.error("Failed to load review status:", err);
+    }
+  };
+
   const openReportModal = ({ type, target, listingId = null, listingOwnerId = null }) => {
     setReportModal({ type, target, listingId, listingOwnerId });
     setReportReason("");
@@ -145,7 +202,11 @@ export default function Bookings() {
 
   const submitReport = async () => {
     if (!reportReason || !dbUser || !reportModal) return;
+
     setReporting(true);
+    setError("");
+    setSuccess("");
+
     try {
       if (reportModal.type === "listing") {
         const { error } = await createListingReport({
@@ -165,6 +226,7 @@ export default function Bookings() {
         });
         if (error) throw error;
       }
+
       closeReportModal();
       setSuccess("Report submitted. Our team will review it shortly.");
     } catch (err) {
@@ -174,17 +236,12 @@ export default function Bookings() {
       setReporting(false);
     }
   };
-  // ────────────────────────────────────────────────────────────────
 
   const fetchData = async () => {
     try {
-      /*
-      Get user for the following calls.
-      Namely looks for the role
-      No in app error handling
-      */
       const { data: userData, error: userError } = await getUserByEmail(user.email);
       if (userError) throw userError;
+
       setDbUser(userData);
       setRole(userData.role);
 
@@ -197,136 +254,118 @@ export default function Bookings() {
       }
     } catch (err) {
       console.error("Failed to fetch data:", err);
+      setError("Failed to fetch booking data.");
     } finally {
       setLoading(false);
     }
   };
-  /*
-  Getting booking requests for students
-  gets all bookings a client has made,
-  all bookings a student has received,
-  and all bookings a student has confirmed
-  No error handling
-  */
+
   const fetchStudentData = async (userId) => {
-    const [sentRes, receivedRes, providerBookingsRes, customerBookingsRes] = await Promise.all([
-      getBookingRequestsByClient(userId),
-      getBookingRequestsForStudent(userId),
-      getBookingsForStudent(userId),
-      getBookingsByClient(userId),
-    ]);
+    const [sentRes, receivedRes, providerBookingsRes, customerBookingsRes] =
+      await Promise.all([
+        getBookingRequestsByClient(userId),
+        getBookingRequestsForStudent(userId),
+        getBookingsForStudent(userId),
+        getBookingsByClient(userId),
+      ]);
+
     setSentRequests(sentRes.data || []);
     setReceivedRequests(receivedRes.data || []);
-    // Merge bookings where student is the provider (their listing was booked)
-    // with bookings where student is the customer (they hired someone else)
     setStudentBookings([
       ...(providerBookingsRes.data || []),
       ...(customerBookingsRes.data || []),
     ]);
   };
-  /*
-  Get booking requests for clients
-  Gets requests made and confirmed
-  No error handling
-  */
+
   const fetchClientData = async (userId) => {
     const [sentRes, bookingsRes] = await Promise.all([
       getBookingRequestsByClient(userId),
       getBookingsByClient(userId),
     ]);
+
     setClientSentRequests(sentRes.data || []);
     setClientBookings(bookingsRes.data || []);
   };
 
-  /*
-  Open the accept-request modal. The student picks whether to keep the
-  listing open for other clients or to deactivate it before we actually
-  process the accept.
-  */
   const openAcceptModal = (req) => {
     setAcceptModal(req);
     setKeepListingActive(true);
   };
 
-  /*
-  handleAction accepts or declines a hire request.
-  For "accepted", the optional `keepActive` arg controls whether we deactivate
-  the listing after confirming the booking. The Accept button routes through
-  the accept modal, which supplies this value; Decline skips the modal.
-  */
   const handleAction = async (requestId, status, keepActive = true) => {
     setError("");
     setSuccess("");
     setActionLoading(requestId + status);
+
     try {
-      //Update status of a booking. Doesn't appear to have an in app error handling
       const { error } = await updateBookingRequestStatus(requestId, status);
       if (error) throw error;
-      const req = receivedRequests.find(r => r.request_id === requestId);
 
-      if (status === "accepted") {
-        if (req) {
-          let agreedPrice = req.listings?.price_amount ?? 0;
-          try {
-            const parsed = JSON.parse(req.note || "{}");
-            if (parsed.agreed_price != null) agreedPrice = parsed.agreed_price;
-          } catch { /* use listing price */ }
-          /*
-          Creating a booking if a request was accepted
-          The parsed part doesn't have a complete catch section
-          No in app error handling
-          */
-          const { data: booking, error: bookingError } = await createBooking({
-            request_id: req.request_id,
-            customer_id: req.customer_id,
-            listing_id: req.listing_id,
-            start_at: req.requested_start_at,
-            end_at: req.requested_end_at,
-            agreed_price_amount: agreedPrice,
-          });
-          if (bookingError) throw bookingError;
+      const req = receivedRequests.find((r) => r.request_id === requestId);
 
-          const { error: paymentError } = await createPayment({
-            booking_id: booking.bookings_id,
-            customer_id: req.customer_id,
-            student_id: req.listings?.student_id,
-            amount: agreedPrice,
-            status: "Unpaid",
-          });
-          if (paymentError) throw paymentError;
+      if (status === "accepted" && req) {
+        let agreedPrice = req.listings?.price_amount ?? 0;
 
-          // Student opted to deactivate the listing so no new hire
-          // requests can come in. Keep this AFTER the booking is created
-          // so a failure here doesn't block the accept.
-          let deactivationSucceeded = keepActive; // true if we weren't trying to deactivate
-          if (!keepActive && req.listing_id) {
-            const { error: deactivateError } = await deactivateListing(req.listing_id);
-            if (deactivateError) {
-              console.error("Failed to deactivate listing:", deactivateError);
-              deactivationSucceeded = false;
-            } else {
-              deactivationSucceeded = true;
-            }
-          }
+        try {
+          const parsed = JSON.parse(req.note || "{}");
+          if (parsed.agreed_price != null) agreedPrice = parsed.agreed_price;
+        } catch {
+          // use listing price
+        }
 
-          await createNotification({
-            userId: req.customer_id,
-            type: "booking_accepted:" + req.request_id,
-          });
+        const { data: booking, error: bookingError } = await createBooking({
+          request_id: req.request_id,
+          customer_id: req.customer_id,
+          listing_id: req.listing_id,
+          start_at: req.requested_start_at,
+          end_at: req.requested_end_at,
+          agreed_price_amount: agreedPrice,
+        });
+        if (bookingError) throw bookingError;
 
-          if (keepActive) {
-            setSuccess(`Request accepted. Your listing "${req.listings?.title}" will remain active.`);
-          } else if (deactivationSucceeded) {
-            setSuccess(`Request accepted. Your listing "${req.listings?.title}" has been deactivated.`);
+        const { error: paymentError } = await createPayment({
+          booking_id: booking.bookings_id,
+          customer_id: req.customer_id,
+          student_id: req.listings?.student_id,
+          amount: agreedPrice,
+          status: "Unpaid",
+        });
+        if (paymentError) throw paymentError;
+
+        let deactivationSucceeded = keepActive;
+
+        if (!keepActive && req.listing_id) {
+          const { error: deactivateError } = await deactivateListing(req.listing_id);
+          if (deactivateError) {
+            console.error("Failed to deactivate listing:", deactivateError);
+            deactivationSucceeded = false;
           } else {
-            // booking went through but the deactivation didn't — surface a warning instead of success
-            setError(`Request accepted, but the listing "${req.listings?.title}" could not be deactivated. You can deactivate it manually from the Jobs page.`);
+            deactivationSucceeded = true;
           }
+        }
+
+        await createNotification({
+          userId: req.customer_id,
+          type: "booking_accepted:" + req.request_id,
+          message: `Your booking request for "${req.listings?.title}" has been accepted.`,
+        });
+
+        if (keepActive) {
+          setSuccess(
+            `Request accepted. Your listing "${req.listings?.title}" will remain active.`
+          );
+        } else if (deactivationSucceeded) {
+          setSuccess(
+            `Request accepted. Your listing "${req.listings?.title}" has been deactivated.`
+          );
+        } else {
+          setError(
+            `Request accepted, but the listing "${req.listings?.title}" could not be deactivated. You can deactivate it manually from the Jobs page.`
+          );
         }
       }
 
       if (status === "declined" && req) {
-        // Notify the client that their request was declined
         await createNotification({
           userId: req.customer_id,
           type: "booking_declined:" + req.request_id,
@@ -334,21 +373,23 @@ export default function Bookings() {
         });
       }
 
-      if (role === "student") await fetchStudentData(dbUser.user_id);
-      else await fetchClientData(dbUser.user_id);
+      if (status === "cancelled" && req) {
+        setSuccess("Request cancelled.");
+      }
+
+      if (role === "student") {
+        await fetchStudentData(dbUser.user_id);
+      } else {
+        await fetchClientData(dbUser.user_id);
+      }
     } catch (err) {
       console.error("Action failed:", err);
-      //alert("Action failed. Please try again.");
-      setError("Action failed. Please try again.")
+      setError("Action failed. Please try again.");
     } finally {
       setActionLoading(null);
     }
   };
 
-  /*
-  Called when the student confirms their choice in the accept modal.
-  Routes through handleAction with the chosen `keepActive` flag.
-  */
   const confirmAccept = async () => {
     if (!acceptModal) return;
     const req = acceptModal;
@@ -364,27 +405,30 @@ export default function Bookings() {
   const cancelBooking = async () => {
     setError("");
     setSuccess("");
+
     if (!cancelModal || !cancelReason.trim()) return;
+
     setCancelling(true);
+
     try {
-      //Cancel booking. No in app error handling
-      const { error: cancelError } = await updateBookingStatus(cancelModal.bookings_id, "cancelled");
+      const { error: cancelError } = await updateBookingStatus(
+        cancelModal.bookings_id,
+        "cancelled"
+      );
       if (cancelError) throw cancelError;
 
-      const recipientId = cancelModal.customer_id === dbUser.user_id
-        ? cancelModal.listings?.users?.user_id ?? null
-        : cancelModal.customer_id;
+      const recipientId =
+        cancelModal.customer_id === dbUser.user_id
+          ? cancelModal.listings?.users?.user_id ?? null
+          : cancelModal.customer_id;
 
       if (recipientId) {
-        /*
-        Create a conversation to cancel a booking. Sends an automated message
-        Does not have an in app error handling
-        */
         const { data: convo, error: convoError } = await createConversation({
           initiatorUserId: dbUser.user_id,
           recipientUserId: recipientId,
         });
         if (convoError) throw convoError;
+
         const { error: msgError } = await sendMessage({
           conversationId: convo.conversation_id,
           senderUserId: dbUser.user_id,
@@ -401,55 +445,106 @@ export default function Bookings() {
 
       setCancelModal(null);
       setCancelReason("");
-      if (role === "student") await fetchStudentData(dbUser.user_id);
-      else await fetchClientData(dbUser.user_id);
+      setSuccess("Booking cancelled.");
+
+      if (role === "student") {
+        await fetchStudentData(dbUser.user_id);
+      } else {
+        await fetchClientData(dbUser.user_id);
+      }
     } catch (err) {
       console.error("Cancel failed:", err);
-      //alert("Failed to cancel booking. Please try again.");
       setError("Failed to cancel booking. Please try again.");
     } finally {
       setCancelling(false);
     }
   };
 
+  const handleReviewClick = (booking) => {
+    const studentId = booking.listings?.users?.user_id;
+    if (!studentId) {
+      setError("Could not find the student for this booking.");
+      return;
+    }
+
+    navigate(`/reviews?studentId=${studentId}&bookingId=${booking.bookings_id}`);
+  };
+
   const formatDate = (dateStr) => {
     if (!dateStr) return "—";
     const localStr = dateStr.slice(0, 10).replace(/-/g, "/");
     return new Date(localStr).toLocaleDateString("en-US", {
-      month: "short", day: "numeric", year: "numeric"
+      month: "short",
+      day: "numeric",
+      year: "numeric",
     });
   };
 
-  if (loading) return (
-    <>
-      <Navbar />
-      <div className="container py-4">Loading...</div>
-    </>
-  );
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+        <div className="container py-4">Loading...</div>
+      </>
+    );
+  }
 
   const studentTabs = [
-    { key: "sent",     label: "Sent Requests",     count: sentRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").length },
-    { key: "received", label: "Received Requests",  count: receivedRequests.filter(r => r.status === "pending").length },
-    { key: "active",   label: "Active Bookings",    count: studentBookings.filter(b => b.status === "confirmed").length },
+    {
+      key: "sent",
+      label: "Sent Requests",
+      count: sentRequests.filter(
+        (r) => r.status !== "cancelled" && r.status !== "accepted"
+      ).length,
+    },
+    {
+      key: "received",
+      label: "Received Requests",
+      count: receivedRequests.filter((r) => r.status === "pending").length,
+    },
+    {
+      key: "active",
+      label: "Active Bookings",
+      count: studentBookings.filter(
+        (b) => b.status === "confirmed" || b.status === "completed"
+      ).length,
+    },
   ];
 
   const clientTabs = [
-    { key: "sent",   label: "Sent Requests",  count: clientSentRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").length },
-    { key: "active", label: "Active Bookings", count: clientBookings.filter(b => b.status === "confirmed").length },
+    {
+      key: "sent",
+      label: "Sent Requests",
+      count: clientSentRequests.filter(
+        (r) => r.status !== "cancelled" && r.status !== "accepted"
+      ).length,
+    },
+    {
+      key: "active",
+      label: "Active Bookings",
+      count: clientBookings.filter(
+        (b) => b.status === "confirmed" || b.status === "completed"
+      ).length,
+    },
   ];
 
   const tabs = role === "student" ? studentTabs : clientTabs;
 
+  const sentList = role === "student" ? sentRequests : clientSentRequests;
+  const activeBookingsList = role === "student" ? studentBookings : clientBookings;
+
   return (
     <>
       <Navbar />
+
       <div className="container py-4">
         <h2 className="mb-4">Bookings</h2>
+
         {error && <div className="alert alert-danger">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
-        {/* Tabs */}
+
         <ul className="nav nav-tabs mb-4">
-          {tabs.map(tab => (
+          {tabs.map((tab) => (
             <li className="nav-item" key={tab.key}>
               <button
                 className={`nav-link ${activeTab === tab.key ? "active" : ""}`}
@@ -464,43 +559,62 @@ export default function Bookings() {
           ))}
         </ul>
 
-        {/* Sent Requests (both roles) */}
         {activeTab === "sent" && (
           <div>
             <h5 className="mb-3">
-              {role === "student" ? "Hire requests you've sent" : "Booking requests you've sent"}
+              {role === "student"
+                ? "Hire requests you've sent"
+                : "Booking requests you've sent"}
             </h5>
-            {(role === "student" ? sentRequests : clientSentRequests).filter(r => r.status !== "cancelled" && r.status !== "accepted").length === 0 ? (
+
+            {sentList.filter(
+              (r) => r.status !== "cancelled" && r.status !== "accepted"
+            ).length === 0 ? (
               <p className="text-muted">No sent requests yet.</p>
             ) : (
               <div className="row g-3">
-                {(role === "student" ? sentRequests : clientSentRequests).filter(r => r.status !== "cancelled" && r.status !== "accepted").map(req => (
-                  <div className="col-md-6" key={req.request_id}>
-                    <div className="card h-100 shadow-sm">
-                      <div className="card-header d-flex justify-content-between align-items-center">
-                        <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
-                        <StatusBadge status={req.status} />
-                      </div>
-                      <div className="card-body">
-                        <p className="text-muted small mb-1">
-                          To: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                {sentList
+                  .filter((r) => r.status !== "cancelled" && r.status !== "accepted")
+                  .map((req) => (
+                    <div className="col-md-6" key={req.request_id}>
+                      <div className="card h-100 shadow-sm">
+                        <div className="card-header d-flex justify-content-between align-items-center">
+                          <span className="fw-semibold">
+                            {req.listings?.title || "Listing"}
+                          </span>
+                          <StatusBadge status={req.status} />
+                        </div>
+
+                        <div className="card-body">
+                          <p className="text-muted small mb-1">
+                            To: {req.listings?.users?.first_name}{" "}
+                            {req.listings?.users?.last_name}
                           </p>
+
                           {(() => {
                             try {
                               const parsed = JSON.parse(req.note || "{}");
-                              if (parsed.agreed_price != null) return (
-                                <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
-                              );
-                            } catch { /* show nothing */ }
+                              if (parsed.agreed_price != null) {
+                                return (
+                                  <p className="text-muted small mb-1">
+                                    Proposed Price: <strong>${parsed.agreed_price}</strong>
+                                  </p>
+                                );
+                              }
+                            } catch {}
                             return null;
                           })()}
+
                           <p className="text-muted small mb-1">
-                            Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
+                            Start: {formatDate(req.requested_start_at)} &rarr;{" "}
+                            {formatDate(req.requested_end_at)}
                           </p>
+
                           <p className="text-muted small mb-0">
                             Sent: {formatDate(req.created_at)}
                           </p>
                         </div>
+
                         {req.status === "pending" && (
                           <div className="card-footer">
                             <button
@@ -508,7 +622,9 @@ export default function Bookings() {
                               disabled={!!actionLoading}
                               onClick={() => handleAction(req.request_id, "cancelled")}
                             >
-                              {actionLoading === req.request_id + "cancelled" ? "Cancelling..." : "Cancel Request"}
+                              {actionLoading === req.request_id + "cancelled"
+                                ? "Cancelling..."
+                                : "Cancel Request"}
                             </button>
                           </div>
                         )}
@@ -520,155 +636,96 @@ export default function Bookings() {
           </div>
         )}
 
-        {/* Received requests (students only) */}
         {activeTab === "received" && role === "student" && (
           <div>
             <h5 className="mb-3">Hire requests sent to you</h5>
-            {receivedRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").length === 0 ? (
+
+            {receivedRequests.filter(
+              (r) => r.status !== "cancelled" && r.status !== "accepted"
+            ).length === 0 ? (
               <p className="text-muted">No received requests yet.</p>
             ) : (
               <div className="row g-3">
-                {receivedRequests.filter(r => r.status !== "cancelled" && r.status !== "accepted").map(req => (
-                  <div className="col-md-6" key={req.request_id}>
-                    <div className="card h-100 shadow-sm">
-                      <div className="card-header d-flex justify-content-between align-items-center">
-                        <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
-                        <StatusBadge status={req.status} />
-                      </div>
-                      <div className="card-body">
-                        <p className="text-muted small mb-1">
-                          From: {req.users?.first_name} {req.users?.last_name}
-                        </p>
-                        {req.users?.email && (
-                          <p className="text-muted small mb-1">{req.users.email}</p>
-                        )}
-                        {(() => {
-                          try {
-                            const parsed = JSON.parse(req.note || "{}");
-                            if (parsed.agreed_price != null) return (
-                              <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
-                            );
-                          } catch { /* show nothing */ }
-                          return null;
-                        })()}
-                        <p className="text-muted small mb-1">
-                          Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
-                        </p>
-                        <p className="text-muted small mb-0">
-                          Received: {formatDate(req.created_at)}
-                        </p>
-                      </div>
-                      {req.status === "pending" && (
-                        <div className="card-footer d-flex gap-2 flex-wrap">
-                          <button
-                            className="btn btn-success btn-sm flex-fill"
-                            disabled={!!actionLoading}
-                            onClick={() => openAcceptModal(req)}
-                          >
-                            {actionLoading === req.request_id + "accepted" ? "Accepting..." : "Accept"}
-                          </button>
-                          <button
-                            className="btn btn-outline-danger btn-sm flex-fill"
-                            disabled={!!actionLoading}
-                            onClick={() => handleAction(req.request_id, "declined")}
-                          >
-                            {actionLoading === req.request_id + "declined" ? "Declining..." : "Decline"}
-                          </button>
-                          {req.users?.user_id && (
-                            <button
-                              className="btn btn-outline-warning btn-sm"
-                              title="Report this client"
-                              onClick={() =>
-                                openReportModal({ type: "user", target: req.users })
-                              }
-                            >
-                              ⚑ Report
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Active Bookings (both roles) */}
-        {activeTab === "active" && (
-          <div>
-            <h5 className="mb-3">Active bookings</h5>
-            {(role === "student" ? studentBookings : clientBookings).filter(b => b.status === "confirmed").length === 0 ? (
-              <p className="text-muted">No active bookings yet.</p>
-            ) : (
-              <div className="row g-3">
-                {(role === "student" ? studentBookings : clientBookings)
-                  .filter(b => b.status === "confirmed")
-                  .map(booking => (
-                    <div className="col-md-6" key={booking.bookings_id}>
+                {receivedRequests
+                  .filter((r) => r.status !== "cancelled" && r.status !== "accepted")
+                  .map((req) => (
+                    <div className="col-md-6" key={req.request_id}>
                       <div className="card h-100 shadow-sm">
                         <div className="card-header d-flex justify-content-between align-items-center">
-                          <span className="fw-semibold">{booking.listings?.title || "Booking"}</span>
-                          <StatusBadge status={booking.status} />
+                          <span className="fw-semibold">
+                            {req.listings?.title || "Listing"}
+                          </span>
+                          <StatusBadge status={req.status} />
                         </div>
+
                         <div className="card-body">
-                          {booking.customer_id === dbUser?.user_id ? (
-                            <p className="text-muted small mb-1">
-                              Student: {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
-                            </p>
-                          ) : (
-                            <p className="text-muted small mb-1">
-                              Client: {booking.users?.first_name} {booking.users?.last_name}
-                            </p>
+                          <p className="text-muted small mb-1">
+                            From: {req.users?.first_name} {req.users?.last_name}
+                          </p>
+
+                          {req.users?.email && (
+                            <p className="text-muted small mb-1">{req.users.email}</p>
                           )}
+
+                          {(() => {
+                            try {
+                              const parsed = JSON.parse(req.note || "{}");
+                              if (parsed.agreed_price != null) {
+                                return (
+                                  <p className="text-muted small mb-1">
+                                    Proposed Price: <strong>${parsed.agreed_price}</strong>
+                                  </p>
+                                );
+                              }
+                            } catch {}
+                            return null;
+                          })()}
+
                           <p className="text-muted small mb-1">
-                            Agreed Price: ${booking.agreed_price_amount}
+                            Start: {formatDate(req.requested_start_at)} &rarr;{" "}
+                            {formatDate(req.requested_end_at)}
                           </p>
-                          <p className="text-muted small mb-1">
-                            Start: {formatDate(booking.start_at)}
-                          </p>
+
                           <p className="text-muted small mb-0">
-                            End: {formatDate(booking.end_at)}
+                            Received: {formatDate(req.created_at)}
                           </p>
                         </div>
-                        <div className="card-footer d-flex gap-2">
-                          <button
-                            className="btn btn-outline-danger btn-sm flex-fill"
-                            onClick={() => openCancelModal(booking)}
-                          >
-                            Cancel Booking
-                          </button>
-                          {/* Client reports the student; student reports the client */}
-                          {role === "client" && booking.listings?.users && (
+
+                        {req.status === "pending" && (
+                          <div className="card-footer d-flex gap-2 flex-wrap">
                             <button
-                              className="btn btn-outline-warning btn-sm"
-                              title="Report this student"
-                              onClick={() =>
-                                openReportModal({
-                                  type: "user",
-                                  target: booking.listings.users,
-                                })
-                              }
+                              className="btn btn-success btn-sm flex-fill"
+                              disabled={!!actionLoading}
+                              onClick={() => openAcceptModal(req)}
                             >
-                              ⚑ Report
+                              {actionLoading === req.request_id + "accepted"
+                                ? "Accepting..."
+                                : "Accept"}
                             </button>
-                          )}
-                          {role === "student" && booking.customer_id !== dbUser?.user_id && booking.users && (
+
                             <button
-                              className="btn btn-outline-warning btn-sm"
-                              title="Report this client"
-                              onClick={() =>
-                                openReportModal({
-                                  type: "user",
-                                  target: booking.users,
-                                })
-                              }
+                              className="btn btn-outline-danger btn-sm flex-fill"
+                              disabled={!!actionLoading}
+                              onClick={() => handleAction(req.request_id, "declined")}
                             >
-                              ⚑ Report
+                              {actionLoading === req.request_id + "declined"
+                                ? "Declining..."
+                                : "Decline"}
                             </button>
-                          )}
-                        </div>
+
+                            {req.users?.user_id && (
+                              <button
+                                className="btn btn-outline-warning btn-sm"
+                                title="Report this client"
+                                onClick={() =>
+                                  openReportModal({ type: "user", target: req.users })
+                                }
+                              >
+                                ⚑ Report
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -677,19 +734,139 @@ export default function Bookings() {
           </div>
         )}
 
-        {/* Accept Hire Request Modal */}
+        {activeTab === "active" && (
+          <div>
+            <h5 className="mb-3">Active bookings</h5>
+
+            {activeBookingsList.filter(
+              (b) => b.status === "confirmed" || b.status === "completed"
+            ).length === 0 ? (
+              <p className="text-muted">No active bookings yet.</p>
+            ) : (
+              <div className="row g-3">
+                {activeBookingsList
+                  .filter((b) => b.status === "confirmed" || b.status === "completed")
+                  .map((booking) => {
+                    const reviewInfo = reviewStatusByBooking[booking.bookings_id];
+                    const showReviewButton =
+                      role === "client" &&
+                      booking.customer_id === dbUser?.user_id &&
+                      reviewInfo?.canReview;
+
+                    return (
+                      <div className="col-md-6" key={booking.bookings_id}>
+                        <div className="card h-100 shadow-sm">
+                          <div className="card-header d-flex justify-content-between align-items-center">
+                            <span className="fw-semibold">
+                              {booking.listings?.title || "Booking"}
+                            </span>
+                            <StatusBadge status={booking.status} />
+                          </div>
+
+                          <div className="card-body">
+                            {booking.customer_id === dbUser?.user_id ? (
+                              <p className="text-muted small mb-1">
+                                Student: {booking.listings?.users?.first_name}{" "}
+                                {booking.listings?.users?.last_name}
+                              </p>
+                            ) : (
+                              <p className="text-muted small mb-1">
+                                Client: {booking.users?.first_name} {booking.users?.last_name}
+                              </p>
+                            )}
+
+                            <p className="text-muted small mb-1">
+                              Agreed Price: ${booking.agreed_price_amount}
+                            </p>
+
+                            <p className="text-muted small mb-1">
+                              Start: {formatDate(booking.start_at)}
+                            </p>
+
+                            <p className="text-muted small mb-0">
+                              End: {formatDate(booking.end_at)}
+                            </p>
+                          </div>
+
+                          <div className="card-footer d-flex gap-2 flex-wrap">
+                            <button
+                              className="btn btn-outline-danger btn-sm flex-fill"
+                              onClick={() => openCancelModal(booking)}
+                            >
+                              Cancel Booking
+                            </button>
+
+                            {showReviewButton && (
+                              <button
+                                className="btn btn-outline-primary btn-sm flex-fill"
+                                onClick={() => handleReviewClick(booking)}
+                              >
+                                {reviewInfo?.hasReview ? "Edit Review" : "Leave Review"}
+                              </button>
+                            )}
+
+                            {role === "client" && booking.listings?.users && (
+                              <button
+                                className="btn btn-outline-warning btn-sm"
+                                title="Report this student"
+                                onClick={() =>
+                                  openReportModal({
+                                    type: "user",
+                                    target: booking.listings.users,
+                                  })
+                                }
+                              >
+                                ⚑ Report
+                              </button>
+                            )}
+
+                            {role === "student" &&
+                              booking.customer_id !== dbUser?.user_id &&
+                              booking.users && (
+                                <button
+                                  className="btn btn-outline-warning btn-sm"
+                                  title="Report this client"
+                                  onClick={() =>
+                                    openReportModal({
+                                      type: "user",
+                                      target: booking.users,
+                                    })
+                                  }
+                                >
+                                  ⚑ Report
+                                </button>
+                              )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        )}
+
         {acceptModal && (
-          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <div
+            className="modal fade show"
+            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
+          >
             <div className="modal-dialog modal-sm modal-dialog-centered">
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">Accept Request</h5>
-                  <button type="button" className="btn-close" onClick={() => setAcceptModal(null)} />
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setAcceptModal(null)}
+                  />
                 </div>
+
                 <div className="modal-body">
                   <p className="text-muted small mb-3">
                     Accepting: <strong>{acceptModal.listings?.title}</strong>
                   </p>
+
                   <div className="form-check mb-2">
                     <input
                       className="form-check-input"
@@ -703,6 +880,7 @@ export default function Bookings() {
                       Accept and keep listing active
                     </label>
                   </div>
+
                   <div className="form-check">
                     <input
                       className="form-check-input"
@@ -717,8 +895,12 @@ export default function Bookings() {
                     </label>
                   </div>
                 </div>
+
                 <div className="modal-footer">
-                  <button className="btn btn-outline-secondary" onClick={() => setAcceptModal(null)}>
+                  <button
+                    className="btn btn-outline-secondary"
+                    onClick={() => setAcceptModal(null)}
+                  >
                     Cancel
                   </button>
                   <button
@@ -734,33 +916,49 @@ export default function Bookings() {
           </div>
         )}
 
-        {/* Cancel Booking Modal */}
         {cancelModal && (
-          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <div
+            className="modal fade show"
+            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
+          >
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">Cancel Booking</h5>
-                  <button type="button" className="btn-close" onClick={() => setCancelModal(null)} />
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setCancelModal(null)}
+                  />
                 </div>
+
                 <div className="modal-body">
                   <p className="text-muted small mb-3">
                     Cancelling: <strong>{cancelModal.listings?.title}</strong>
                   </p>
-                  <label className="form-label">Reason for cancellation <span className="text-danger">*</span></label>
+
+                  <label className="form-label">
+                    Reason for cancellation <span className="text-danger">*</span>
+                  </label>
+
                   <textarea
                     className="form-control"
                     rows={4}
                     placeholder="Let the other person know why you're cancelling..."
                     value={cancelReason}
-                    onChange={e => setCancelReason(e.target.value)}
+                    onChange={(e) => setCancelReason(e.target.value)}
                   />
+
                   <p className="text-muted small mt-2 mb-0">
                     This message will be sent automatically to the other party.
                   </p>
                 </div>
+
                 <div className="modal-footer">
-                  <button className="btn btn-outline-secondary" onClick={() => setCancelModal(null)}>
+                  <button
+                    className="btn btn-outline-secondary"
+                    onClick={() => setCancelModal(null)}
+                  >
                     Keep Booking
                   </button>
                   <button
@@ -794,14 +992,23 @@ export default function Bookings() {
                 <div className="modal-body pt-2">
                   <p className="text-muted small mb-3">
                     {reportModal.type === "listing" ? (
-                      <>Reporting listing: <strong>{reportModal.target?.title}</strong></>
+                      <>
+                        Reporting listing: <strong>{reportModal.target?.title}</strong>
+                      </>
                     ) : (
-                      <>Reporting user: <strong>{reportModal.target?.first_name} {reportModal.target?.last_name}</strong></>
+                      <>
+                        Reporting user:{" "}
+                        <strong>
+                          {reportModal.target?.first_name} {reportModal.target?.last_name}
+                        </strong>
+                      </>
                     )}
                   </p>
 
                   <div className="mb-3">
-                    <label className="form-label fw-medium">Reason <span className="text-danger">*</span></label>
+                    <label className="form-label fw-medium">
+                      Reason <span className="text-danger">*</span>
+                    </label>
                     <select
                       className="form-select"
                       value={reportReason}
@@ -819,7 +1026,9 @@ export default function Bookings() {
                   </div>
 
                   <div className="mb-0">
-                    <label className="form-label fw-medium">Details <span className="text-muted">(optional)</span></label>
+                    <label className="form-label fw-medium">
+                      Details <span className="text-muted">(optional)</span>
+                    </label>
                     <textarea
                       className="form-control"
                       rows={4}
@@ -850,7 +1059,6 @@ export default function Bookings() {
             </div>
           </div>
         )}
-
       </div>
     </>
   );
