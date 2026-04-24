@@ -435,7 +435,7 @@ export async function getBookingRequestsByClient(customerId) {
     .from("bookingrequests")
     .select(`
       *,
-      listings(title, price_amount, users(first_name, last_name))
+      listings(listing_id, title, price_amount, student_id, users(user_id, first_name, last_name))
     `)
     .eq("customer_id", customerId)
     .order("created_at", { ascending: false });
@@ -448,7 +448,7 @@ export async function getBookingRequestsForStudent(studentId) {
     .select(`
       *,
       listings!inner(listing_id, title, student_id),
-      users(first_name, last_name, email)
+      users(user_id, first_name, last_name, email)
     `)
     .eq("listings.student_id", studentId)
     .order("created_at", { ascending: false });
@@ -522,7 +522,7 @@ export async function getBookingsForStudent(studentId) {
     .select(`
       *,
       listings(listing_id, title, student_id),
-      users(first_name, last_name, email)
+      users(user_id, first_name, last_name, email)
     `)
     .in("listing_id", listingIds)
     .order("start_at");
@@ -981,7 +981,8 @@ export async function createUserReport({
   reason,
   details,
 }) {
-  return await supabase
+  // Insert the report record
+  const result = await supabase
     .from("user_reports")
     .insert({
       reported_user_id: reportedUserId,
@@ -992,6 +993,30 @@ export async function createUserReport({
     })
     .select()
     .single();
+
+  if (result.error) return result;
+
+  // Increment report_count on the reported user so the admin Users tab flags them.
+  // Read-then-write is acceptable here (capstone, non-critical race condition).
+  try {
+    const { data: userData } = await supabase
+      .from("users")
+      .select("report_count")
+      .eq("user_id", reportedUserId)
+      .single();
+
+    if (userData) {
+      await supabase
+        .from("users")
+        .update({ report_count: (userData.report_count || 0) + 1 })
+        .eq("user_id", reportedUserId);
+    }
+  } catch (err) {
+    // Non-fatal — report was created, count update is best-effort
+    console.warn("Could not increment report_count:", err);
+  }
+
+  return result;
 }
 
 
@@ -1062,10 +1087,73 @@ export async function getPendingUserReports() {
 
 
 
+/**
+ * Hard-delete a listing and ALL related data in dependency order.
+ * Done in JS to avoid FK constraint errors without requiring a new migration.
+ * Cascade order:
+ *   reviews → payments → bookings → bookingrequests
+ *   → listing_reports → listingsskills → listings
+ */
 export async function hardDeleteListingFull(listingId) {
-  return await supabase.rpc("hard_delete_listing_full", {
-    target_listing_id: listingId,
-  });
+  // 1. Find all confirmed booking IDs for this listing (needed for reviews/payments)
+  const { data: bookingRows, error: bookingFetchErr } = await supabase
+    .from("bookings")
+    .select("bookings_id")
+    .eq("listing_id", listingId);
+
+  if (bookingFetchErr) return { data: null, error: bookingFetchErr };
+
+  const bookingIds = (bookingRows || []).map((b) => b.bookings_id);
+
+  // 2. Delete reviews tied to those bookings
+  if (bookingIds.length > 0) {
+    const { error: reviewsErr } = await supabase
+      .from("reviews")
+      .delete()
+      .in("booking_id", bookingIds);
+    if (reviewsErr) return { data: null, error: reviewsErr };
+
+    // 3. Delete payments tied to those bookings
+    const { error: paymentsErr } = await supabase
+      .from("payments")
+      .delete()
+      .in("booking_id", bookingIds);
+    if (paymentsErr) return { data: null, error: paymentsErr };
+  }
+
+  // 4. Delete confirmed bookings for this listing
+  const { error: bookingsErr } = await supabase
+    .from("bookings")
+    .delete()
+    .eq("listing_id", listingId);
+  if (bookingsErr) return { data: null, error: bookingsErr };
+
+  // 5. Delete booking requests for this listing (was the FK error root cause)
+  const { error: requestsErr } = await supabase
+    .from("bookingrequests")
+    .delete()
+    .eq("listing_id", listingId);
+  if (requestsErr) return { data: null, error: requestsErr };
+
+  // 6. Delete listing reports
+  const { error: reportsErr } = await supabase
+    .from("listing_reports")
+    .delete()
+    .eq("listing_id", listingId);
+  if (reportsErr) return { data: null, error: reportsErr };
+
+  // 7. Delete skill tags
+  const { error: skillsErr } = await supabase
+    .from("listingsskills")
+    .delete()
+    .eq("listing_id", listingId);
+  if (skillsErr) return { data: null, error: skillsErr };
+
+  // 8. Finally delete the listing itself
+  return await supabase
+    .from("listings")
+    .delete()
+    .eq("listing_id", listingId);
 }
 
 export async function sendAdminMessageToUser(adminUserId, targetUserId, body) {
