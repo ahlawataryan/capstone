@@ -1,52 +1,20 @@
 import { supabase } from "../supabaseconfig";
-/*
-File to contain wrapper functions that can call supabase functions. 
-Supabase configured in supabaseconfig.js
-Supabase installed on system using scoop in command line
-Supabase commands to retrieve and set up database. Connection should be made already,
-so these are for set up. Need docker desktop running
-supabase start
-supabase migration up
-supabase push
-supabase pull
-Dependencies:
-supabase
-supabase-js
-*/
 
 /*
-  supabaseapi.jsx
-  ---------------
-  Centralised wrapper functions for all Supabase calls.
-  Import individual functions wherever you need them:
-
-    import { getUserByEmail, upsertUser } from "../api/supabaseapi";
-
-  Every function returns the raw { data, error } object from Supabase
-  unless noted otherwise, so callers can handle errors themselves.
-
-  Table quick-reference
-  ─────────────────────
-  users              – user_id, email, role, first_name, last_name, phone, bio, created_at, updated_at
-  listings           – listing_id, student_id, title, description, status, location_text, pricing_type, price_amount, created_at, updated_at
-  skills             – skill_id, name, is_active
-  studentskills      – student_id, skill_id, proficiency, interest
-  listingsskills     – listing_id, skill_id
-  availabilityslots  – slot_id, student_id, start_at, end_at, status
-  bookingrequests    – request_id, customer_id, listing_id, requested_start_at, requested_end_at, note, status, created_at, updated_at
-  bookings           – bookings_id, request_id, customer_id, listing_id, start_at, end_at, status, agreed_price_amount, created_at, updated_at
-  conversations      – conversation_id, booking_id, request_id, created_at, recipient_user_id, initiator_user_id
-  messages           – message_id, conversation_id, sender_user_id, body, sent_at, read_at
-  notifications      – notification_id, user_id, type, channel, status, created_at
-  payments           – payment_id, booking_id, customer_id, student_id, amount, status, provider, provider_payment_id, created_at, paid_at
-  reviews            – review_id, booking_id, reviewer_user_id, reviewee_user_id, rating, comment, created_at
+Centralized wrapper functions for Supabase calls.
 */
+
+const nowIso = () => new Date().toISOString();
+
+function isFutureOrCurrent(dateValue) {
+  if (!dateValue) return false;
+  return new Date(dateValue).getTime() >= Date.now();
+}
 
 // ─────────────────────────────────────────────────
 // USERS
 // ─────────────────────────────────────────────────
 
-/** Get all users. Used for admin dashboard and messaging user lists. */
 export async function getAllUsers() {
   return await supabase
     .from("users")
@@ -59,13 +27,14 @@ export async function getAllUsers() {
       is_active,
       delete_requested,
       delete_request_reason,
+      delete_request_status,
+      delete_request_review_note,
       account_status,
       report_count
     `)
-    .order("user_id", { ascending: true });
+    .order("first_name");
 }
 
-/** Fetch a single user by email. Used after Auth0 login to load profile + role. */
 export async function getUserByEmail(email) {
   return await supabase
     .from("users")
@@ -74,7 +43,6 @@ export async function getUserByEmail(email) {
     .single();
 }
 
-/** Fetch a single user by their numeric user_id. */
 export async function getUserById(userId) {
   return await supabase
     .from("users")
@@ -83,16 +51,6 @@ export async function getUserById(userId) {
     .single();
 }
 
-/**
- * Insert a new user row, or update it if the email already exists.
- * Pass any subset of: { email, role, first_name, last_name, phone, bio }
- *
- * Example – create on first login:
- *   await upsertUser({ email: user.email, role: "client" });
- *
- * Example – update profile fields:
- *   await upsertUser({ email: user.email, first_name: "Rory", bio: "..." });
- */
 export async function upsertUser({ email, role, first_name, last_name, phone, bio }) {
   return await supabase
     .from("users")
@@ -104,33 +62,18 @@ export async function upsertUser({ email, role, first_name, last_name, phone, bi
     .single();
 }
 
-/**
- * Insert a new user row, or update it if the email already exists.
- * Pass any subset of: { email, role, first_name, last_name, phone, bio }
- * This isn't strictly necessary, but it's meant to be an additional security level
- * in case some loophole to create an account with the same email is found
- *
- * Example – create on first login:
- *   await upsertUser({ email: user.email, role: "client" });
- *
- * Example – update profile fields:
- *   await upsertUser({ email: user.email, first_name: "Rory", bio: "..." });
- */
-export async function insertUser({ email, role, first_name, last_name, phone, bio }){
+export async function insertUser({ email, role, first_name, last_name, phone, bio }) {
   return await supabase
     .from("users")
-    .insert(
-      { email: email, role: role, first_name: first_name, last_name: last_name, phone: phone, bio: bio }
-    )
+    .insert({ email, role, first_name, last_name, phone, bio })
     .select()
     .single();
 }
 
-/** Update specific profile fields for a user (by user_id). */
 export async function updateUserProfile(userId, fields) {
   return await supabase
     .from("users")
-    .update({ ...fields, updated_at: new Date().toISOString() })
+    .update({ ...fields, updated_at: nowIso() })
     .eq("user_id", userId)
     .select()
     .single();
@@ -144,36 +87,99 @@ export async function updateUser(email, updates) {
     .select()
     .single();
 }
-/*
-Add a file to storage. File accessed using a url in the user table
-Takes an email for user reference, file url for the name, file itself
-*/
-export async function updateIcon(fileurl, file){
+
+export async function deactivateUser(userId) {
   return await supabase
-  .storage
-  .from('icons')
-  .upload(fileurl, file, {upsert : true, contentType: "/image/jpeg"});
+    .from("users")
+    .update({
+      is_active: false,
+      account_status: "deleted",
+      updated_at: nowIso(),
+    })
+    .eq("user_id", userId)
+    .select()
+    .single();
 }
 
-/*
-Get an image from storage. The url should be possible to display with like an </img> block
-I have no idea why this isn't a promise like the rest of them, but it works
-*/
-export function getIcon(fileurl){
-  return supabase.storage.from('icons').getPublicUrl(fileurl);
-}
-
-export async function setUserIcon(email, fileurl){
+export async function requestAccountDeletion(userId, reason) {
   return await supabase
-  .from("users")
-  .update({icon_url : fileurl})
-  .eq("email", email)
-  .select();
+    .from("users")
+    .update({
+      delete_requested: true,
+      delete_request_reason: reason,
+      delete_request_status: "pending",
+      delete_request_review_note: null,
+      account_status: "deletion_requested",
+      updated_at: nowIso(),
+    })
+    .eq("user_id", userId)
+    .select()
+    .single();
 }
 
-/*
-Delete an image from storage using a url. May need to be an array as an argument.
-*/
+export async function approveDeletionRequest(userId) {
+  return await supabase
+    .from("users")
+    .update({
+      is_active: false,
+      delete_requested: false,
+      delete_request_status: "approved",
+      delete_request_review_note:
+        "Your deletion request was approved and your account has been closed.",
+      account_status: "deleted",
+      updated_at: nowIso(),
+    })
+    .eq("user_id", userId)
+    .select()
+    .single();
+}
+
+export async function rejectDeletionRequest(userId, reason) {
+  return await supabase
+    .from("users")
+    .update({
+      delete_requested: false,
+      delete_request_status: "denied",
+      delete_request_review_note: reason,
+      account_status: "active",
+      updated_at: nowIso(),
+    })
+    .eq("user_id", userId)
+    .select()
+    .single();
+}
+
+export async function hardDeleteUser(userId) {
+  return await supabase
+    .from("users")
+    .delete()
+    .eq("user_id", userId);
+}
+
+export async function hardDeleteUserAccount(userId) {
+  return await supabase.rpc("hard_delete_user_account", {
+    target_user_id: userId,
+  });
+}
+
+export async function updateIcon(fileurl, file) {
+  return await supabase.storage
+    .from("icons")
+    .upload(fileurl, file, { upsert: true, contentType: "image/jpeg" });
+}
+
+export function getIcon(fileurl) {
+  return supabase.storage.from("icons").getPublicUrl(fileurl);
+}
+
+export async function setUserIcon(email, fileurl) {
+  return await supabase
+    .from("users")
+    .update({ icon_url: fileurl })
+    .eq("email", email)
+    .select();
+}
+
 export async function deleteIcon(fileurl) {
   return await supabase.storage.from("icons").remove([fileurl]);
 }
@@ -182,7 +188,6 @@ export async function deleteIcon(fileurl) {
 // SKILLS
 // ─────────────────────────────────────────────────
 
-/** Get all active skills (for dropdowns / filter UI). */
 export async function getAllSkills() {
   return await supabase
     .from("skills")
@@ -191,7 +196,6 @@ export async function getAllSkills() {
     .order("name");
 }
 
-/** Get all skills that belong to a specific student. */
 export async function getSkillsForStudent(studentId) {
   return await supabase
     .from("studentskills")
@@ -199,10 +203,6 @@ export async function getSkillsForStudent(studentId) {
     .eq("student_id", studentId);
 }
 
-/**
- * Add or update a skill on a student's profile.
- * proficiency and interest are integers (e.g. 1–5).
- */
 export async function upsertStudentSkill(studentId, skillId, proficiency, interest) {
   return await supabase
     .from("studentskills")
@@ -212,7 +212,6 @@ export async function upsertStudentSkill(studentId, skillId, proficiency, intere
     );
 }
 
-/** Remove a skill from a student's profile. */
 export async function removeStudentSkill(studentId, skillId) {
   return await supabase
     .from("studentskills")
@@ -221,16 +220,7 @@ export async function removeStudentSkill(studentId, skillId) {
     .eq("skill_id", skillId);
 }
 
-/**
- * Get all students that have a specific skill.
- * Returns user rows joined through studentskills.
- * Pass a skill name string (e.g. "React") or a skill_id number.
- *
- * Usage (by name):  getStudentsBySkillName("React")
- * Usage (by id):    getStudentsBySkillId(3)
- */
 export async function getStudentsBySkillName(skillName) {
-  // First resolve the skill name to an id
   const { data: skill, error: skillError } = await supabase
     .from("skills")
     .select("skill_id")
@@ -248,34 +238,131 @@ export async function getStudentsBySkillId(skillId) {
     .eq("skill_id", skillId);
 }
 
-
 // ─────────────────────────────────────────────────
-// LISTINGS  (student service listings)
+// EXPIRED BOOKING / REQUEST SYNC
 // ─────────────────────────────────────────────────
 
-/** Get all active listings, newest first. Good for the client "browse" page. */
-export async function getActiveListings() {
+export async function syncExpiredBookingRequests() {
   return await supabase
+    .from("bookingrequests")
+    .update({
+      status: "expired",
+      updated_at: nowIso(),
+    })
+    .eq("status", "pending")
+    .lt("requested_end_at", nowIso())
+    .select();
+}
+
+export async function syncExpiredBookings() {
+  return await supabase
+    .from("bookings")
+    .update({
+      status: "completed",
+      updated_at: nowIso(),
+    })
+    .eq("status", "confirmed")
+    .lt("end_at", nowIso())
+    .select();
+}
+
+export async function syncExpiredBookingData() {
+  const { error: requestError } = await syncExpiredBookingRequests();
+  if (requestError) return { data: null, error: requestError };
+
+  const { error: bookingError } = await syncExpiredBookings();
+  if (bookingError) return { data: null, error: bookingError };
+
+  return { data: true, error: null };
+}
+
+// ─────────────────────────────────────────────────
+// LISTINGS
+// ─────────────────────────────────────────────────
+
+export async function getActiveListings() {
+  await syncExpiredBookingData();
+
+  const { data, error } = await supabase
     .from("listings")
     .select(`
-      listing_id, title, description, status, location_text, pricing_type, price_amount, created_at, student_id, 
-      users!listings_student_id_fkey(user_id, first_name, last_name, email, phone, bio, icon_url), 
-      listingsskills(skills(skill_id, name))
+      listing_id,
+      title,
+      description,
+      status,
+      location_text,
+      pricing_type,
+      price_amount,
+      created_at,
+      student_id,
+      users!listings_student_id_fkey(
+        user_id,
+        first_name,
+        last_name,
+        email,
+        phone,
+        bio,
+        icon_url
+      ),
+      listingsskills(
+        skills(skill_id, name)
+      ),
+      bookings(
+        bookings_id,
+        status,
+        start_at,
+        end_at
+      )
     `)
     .eq("status", "active")
     .order("created_at", { ascending: false });
+
+  if (error) return { data: null, error };
+
+  const cleanedListings = (data || []).filter((listing) => {
+    const hasActiveConfirmedBooking = (listing.bookings || []).some(
+      (booking) =>
+        booking.status === "confirmed" && isFutureOrCurrent(booking.end_at)
+    );
+
+    return !hasActiveConfirmedBooking;
+  });
+
+  return { data: cleanedListings, error: null };
 }
 
-/** Get all listings created by a specific student, including skills and booking status. */
 export async function getListingsByStudent(studentId) {
+  await syncExpiredBookingData();
+
   return await supabase
     .from("listings")
-    .select("*, listingsskills(skills(skill_id, name)), bookings(bookings_id, status)")
+    .select(`
+      listing_id,
+      student_id,
+      title,
+      description,
+      status,
+      location_text,
+      pricing_type,
+      price_amount,
+      created_at,
+      updated_at,
+      listingsskills(
+        skills(skill_id, name)
+      ),
+      bookings(
+        bookings_id,
+        customer_id,
+        status,
+        start_at,
+        end_at,
+        agreed_price_amount
+      )
+    `)
     .eq("student_id", studentId)
     .order("created_at", { ascending: false });
 }
 
-/** Get a single listing by id (includes the student's name). */
 export async function getListingById(listingId) {
   return await supabase
     .from("listings")
@@ -288,40 +375,47 @@ export async function getListingById(listingId) {
     .single();
 }
 
-/**
- * Create a new listing.
- * Required fields: { student_id, title, status, pricing_type, price_amount }
- * Optional:        { description, location_text }
- */
-export async function createListing({ student_id, title, description, status = "active",
-                                      location_text, pricing_type, price_amount }) {
+export async function createListing({
+  student_id,
+  title,
+  description,
+  status = "active",
+  location_text,
+  pricing_type,
+  price_amount,
+}) {
   return await supabase
     .from("listings")
-    .insert({ student_id, title, description, status, location_text, pricing_type, price_amount })
+    .insert({
+      student_id,
+      title,
+      description,
+      status,
+      location_text,
+      pricing_type,
+      price_amount,
+    })
     .select()
     .single();
 }
 
-/** Update fields on an existing listing. Pass only the fields you want to change. */
 export async function updateListing(listingId, fields) {
   return await supabase
     .from("listings")
-    .update({ ...fields, updated_at: new Date().toISOString() })
+    .update({ ...fields, updated_at: nowIso() })
     .eq("listing_id", listingId)
     .select()
     .single();
 }
 
-/** Soft-delete: set a listing's status to "inactive". Used by students on their own listings. */
 export async function deactivateListing(listingId) {
   return updateListing(listingId, { status: "inactive" });
 }
 
-/**
- * Hard-delete a listing and all its associated skill tags.
- * This is the reverse of createListing + addSkillToListing — for admin use only.
- * Deletes listingsskills rows first (FK constraint), then the listing itself.
- */
+export async function reactivateListing(listingId) {
+  return updateListing(listingId, { status: "active" });
+}
+
 export async function hardDeleteListing(listingId) {
   const { error: skillsError } = await supabase
     .from("listingsskills")
@@ -336,14 +430,21 @@ export async function hardDeleteListing(listingId) {
     .eq("listing_id", listingId);
 }
 
-/** Attach a skill tag to a listing. */
+export async function hardDeleteListingFull(listingId) {
+  return await supabase.rpc("hard_delete_listing_full", {
+    target_listing_id: listingId,
+  });
+}
+
 export async function addSkillToListing(listingId, skillId) {
   return await supabase
     .from("listingsskills")
-    .upsert({ listing_id: listingId, skill_id: skillId }, { onConflict: "listing_id,skill_id" });
+    .upsert(
+      { listing_id: listingId, skill_id: skillId },
+      { onConflict: "listing_id,skill_id" }
+    );
 }
 
-/** Remove a skill tag from a listing. */
 export async function removeSkillFromListing(listingId, skillId) {
   return await supabase
     .from("listingsskills")
@@ -352,17 +453,19 @@ export async function removeSkillFromListing(listingId, skillId) {
     .eq("skill_id", skillId);
 }
 
-/**
- * Filter active listings by skill id.
- * Used on the client "browse" page when a skill filter is selected.
- */
 export async function getListingsBySkill(skillId) {
   return await supabase
     .from("listingsskills")
     .select(`
       listings(
-        listing_id, title, description, status,
-        location_text, pricing_type, price_amount, created_at,
+        listing_id,
+        title,
+        description,
+        status,
+        location_text,
+        pricing_type,
+        price_amount,
+        created_at,
         users(user_id, first_name, last_name, email)
       )
     `)
@@ -371,10 +474,9 @@ export async function getListingsBySkill(skillId) {
 }
 
 // ─────────────────────────────────────────────────
-// AVAILABILITY SLOTS
+// AVAILABILITY
 // ─────────────────────────────────────────────────
 
-/** Get all availability slots for a student. */
 export async function getAvailabilityForStudent(studentId) {
   return await supabase
     .from("availabilityslots")
@@ -383,7 +485,6 @@ export async function getAvailabilityForStudent(studentId) {
     .order("start_at");
 }
 
-/** Add an availability slot for a student. status: "open" | "booked" */
 export async function addAvailabilitySlot(studentId, startAt, endAt, status = "open") {
   return await supabase
     .from("availabilityslots")
@@ -392,7 +493,6 @@ export async function addAvailabilitySlot(studentId, startAt, endAt, status = "o
     .single();
 }
 
-/** Update a slot's status (e.g. mark as "booked" when confirmed). */
 export async function updateSlotStatus(slotId, status) {
   return await supabase
     .from("availabilityslots")
@@ -406,15 +506,52 @@ export async function updateSlotStatus(slotId, status) {
 // BOOKING REQUESTS
 // ─────────────────────────────────────────────────
 
-/**
- * Create a booking request (client → student).
- * Required: { customer_id, listing_id, requested_start_at, requested_end_at }
- * Optional: { note }
- * status defaults to "pending".
- */
 export async function createBookingRequest({
-  customer_id, listing_id, requested_start_at, requested_end_at, note
+  customer_id,
+  listing_id,
+  requested_start_at,
+  requested_end_at,
+  note,
 }) {
+  await syncExpiredBookingData();
+
+  const { data: listing, error: listingError } = await supabase
+    .from("listings")
+    .select(`
+      listing_id,
+      status,
+      bookings(
+        bookings_id,
+        status,
+        end_at
+      )
+    `)
+    .eq("listing_id", listing_id)
+    .single();
+
+  if (listingError) {
+    return { data: null, error: listingError };
+  }
+
+  if (!listing || listing.status !== "active") {
+    return {
+      data: null,
+      error: { message: "This listing is no longer available." },
+    };
+  }
+
+  const hasActiveConfirmedBooking = (listing.bookings || []).some(
+    (booking) =>
+      booking.status === "confirmed" && isFutureOrCurrent(booking.end_at)
+  );
+
+  if (hasActiveConfirmedBooking) {
+    return {
+      data: null,
+      error: { message: "This listing is already booked." },
+    };
+  }
+
   return await supabase
     .from("bookingrequests")
     .insert({
@@ -429,54 +566,67 @@ export async function createBookingRequest({
     .single();
 }
 
-/** Get all booking requests sent by a specific client. */
 export async function getBookingRequestsByClient(customerId) {
+  await syncExpiredBookingData();
+
   return await supabase
     .from("bookingrequests")
     .select(`
       *,
-      listings(listing_id, title, price_amount, student_id, users(user_id, first_name, last_name))
+      listings(
+        title,
+        price_amount,
+        users(first_name, last_name)
+      )
     `)
     .eq("customer_id", customerId)
+    .not("status", "eq", "expired")
     .order("created_at", { ascending: false });
 }
 
-/** Get all booking requests received for a student's listings. */
 export async function getBookingRequestsForStudent(studentId) {
+  await syncExpiredBookingData();
+
   return await supabase
     .from("bookingrequests")
     .select(`
       *,
-      listings!inner(listing_id, title, student_id),
-      users(user_id, first_name, last_name, email)
+      listings!inner(
+        listing_id,
+        title,
+        student_id
+      ),
+      users(
+        first_name,
+        last_name,
+        email
+      )
     `)
     .eq("listings.student_id", studentId)
+    .not("status", "eq", "expired")
     .order("created_at", { ascending: false });
 }
 
-/**
- * Update the status of a booking request.
- * status options: "pending" | "accepted" | "declined" | "cancelled"
- */
 export async function updateBookingRequestStatus(requestId, status) {
   return await supabase
     .from("bookingrequests")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status, updated_at: nowIso() })
     .eq("request_id", requestId)
     .select()
     .single();
 }
 
 // ─────────────────────────────────────────────────
-// BOOKINGS  (confirmed, after request accepted)
+// BOOKINGS
 // ─────────────────────────────────────────────────
 
-/**
- * Confirm a booking request by creating a bookings row.
- * Call this after updateBookingRequestStatus(requestId, "accepted").
- */
 export async function createBooking({
-  request_id, customer_id, listing_id, start_at, end_at, agreed_price_amount
+  request_id,
+  customer_id,
+  listing_id,
+  start_at,
+  end_at,
+  agreed_price_amount,
 }) {
   return await supabase
     .from("bookings")
@@ -493,63 +643,98 @@ export async function createBooking({
     .single();
 }
 
-/** Get all bookings for a client. */
 export async function getBookingsByClient(customerId) {
+  await syncExpiredBookingData();
+
   return await supabase
     .from("bookings")
     .select(`
       *,
-      listings(listing_id, title, student_id, users(user_id, first_name, last_name))
+      listings(
+        listing_id,
+        student_id,
+        title,
+        description,
+        location_text,
+        pricing_type,
+        price_amount,
+        users!listings_student_id_fkey(
+          user_id,
+          first_name,
+          last_name,
+          email
+        )
+      )
     `)
     .eq("customer_id", customerId)
     .order("start_at");
 }
 
-/** Get all confirmed bookings for a student (via their listings). */
+
 export async function getBookingsForStudent(studentId) {
-  const { data: listingsData, error: listingsError } = await supabase
-    .from("listings")
-    .select("listing_id")
-    .eq("student_id", studentId);
-
-  if (listingsError) return { data: null, error: listingsError };
-
-  const listingIds = (listingsData || []).map((l) => l.listing_id);
-  if (listingIds.length === 0) return { data: [], error: null };
+  await syncExpiredBookingData();
 
   return await supabase
     .from("bookings")
     .select(`
       *,
-      listings(listing_id, title, student_id),
-      users(user_id, first_name, last_name, email)
+      listings!inner(
+        listing_id,
+        title,
+        student_id
+      ),
+      users(
+        first_name,
+        last_name,
+        email
+      )
     `)
-    .in("listing_id", listingIds)
+    .eq("listings.student_id", studentId)
     .order("start_at");
 }
 
-/** Get all confirmed bookings for a client with full listing details. Used on the Jobs page "Active Listings" tab. */
 export async function getActiveBookingListingsForClient(customerId) {
+  await syncExpiredBookingData();
+
   return await supabase
     .from("bookings")
     .select(`
-      bookings_id, start_at, end_at, agreed_price_amount, status,
+      bookings_id,
+      request_id,
+      customer_id,
+      listing_id,
+      start_at,
+      end_at,
+      status,
+      agreed_price_amount,
       listings(
-        listing_id, title, description, location_text, pricing_type, price_amount,
-        users!listings_student_id_fkey(user_id, first_name, last_name),
-        listingsskills(skills(skill_id, name))
+        listing_id,
+        title,
+        description,
+        location_text,
+        pricing_type,
+        price_amount,
+        listingsskills(
+          skills(skill_id, name)
+        ),
+        users!listings_student_id_fkey(
+          user_id,
+          first_name,
+          last_name,
+          email
+        )
       )
     `)
     .eq("customer_id", customerId)
     .eq("status", "confirmed")
-    .order("start_at");
+    .gte("end_at", nowIso())
+    .order("start_at", { ascending: true });
 }
 
-/** Update a booking's status. status: "confirmed" | "completed" | "cancelled" */
 export async function updateBookingStatus(bookingId, status) {
   return await supabase
     .from("bookings")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status, updated_at: nowIso() })
     .eq("bookings_id", bookingId)
     .select()
     .single();
@@ -575,11 +760,30 @@ export async function getCompletedBookingsForClientAndStudent(clientUserId, stud
     .order("bookings_id", { ascending: false });
 }
 
+export async function getAcceptedBookingsForClientAndStudent(clientUserId, studentUserId) {
+  return await supabase
+    .from("bookings")
+    .select(`
+      bookings_id,
+      status,
+      customer_id,
+      listing_id,
+      listings!inner(
+        listing_id,
+        student_id,
+        title
+      )
+    `)
+    .eq("customer_id", clientUserId)
+    .eq("listings.student_id", studentUserId)
+    .in("status", ["confirmed", "completed"])
+    .order("bookings_id", { ascending: false });
+}
+
 // ─────────────────────────────────────────────────
 // REVIEWS
 // ─────────────────────────────────────────────────
 
-/** Get reviews for a student (latest first), including reviewer info and category ratings. */
 export async function getReviewsForStudent(revieweeUserId) {
   return await supabase
     .from("reviews")
@@ -606,19 +810,6 @@ export async function getReviewsForStudent(revieweeUserId) {
     .order("created_at", { ascending: false });
 }
 
-/**
- * Get full review analytics for a student.
- * Returns:
- * {
- *   avg,
- *   count,
- *   workQualityAvg,
- *   communicationAvg,
- *   professionalismAvg,
- *   reliabilityAvg,
- *   distribution: { 5, 4, 3, 2, 1 }
- * }
- */
 export async function getReviewSummary(revieweeUserId) {
   const { data, error } = await supabase
     .from("reviews")
@@ -679,10 +870,6 @@ export async function getReviewSummary(revieweeUserId) {
   };
 }
 
-/**
- * Create or update a review.
- * Supports detailed category ratings and editing existing reviews.
- */
 export async function upsertReview({
   reviewId = null,
   bookingId = null,
@@ -723,7 +910,6 @@ export async function upsertReview({
     .single();
 }
 
-/** Delete a review by review_id. */
 export async function deleteReview(reviewId) {
   return await supabase
     .from("reviews")
@@ -731,10 +917,6 @@ export async function deleteReview(reviewId) {
     .eq("review_id", reviewId);
 }
 
-/**
- * Get a single review left by a reviewer for a specific student.
- * Useful if you want to prefill edit form or enforce one review per reviewer/student.
- */
 export async function getReviewByReviewerAndStudent(reviewerUserId, revieweeUserId) {
   return await supabase
     .from("reviews")
@@ -755,204 +937,10 @@ export async function getReviewByReviewerAndStudent(reviewerUserId, revieweeUser
     .eq("reviewee_user_id", revieweeUserId)
     .maybeSingle();
 }
-// ─────────────────────────────────────────────────
-// JOB SEARCHING
-// ─────────────────────────────────────────────────
-//I probably don't need to get the skill names. The entry can just use the id,
-//then get them in another function for display. It would clean this up a bit
-/*
-Search for jobs using skills. Order by average rating
-The data used can be handled more on the front end side.
-Takes skills in a format like (1, 2)
-Only returns the number from numReturn. Calls can double this
-*/
-export async function getJobsBySkillsRatings(skills, numReturn) {
-  return await supabase
-  .from('listings')
-  .select(`
-    listing_id,
-    student_id,
-    title,
-    description,
-    status,
-    location_text,
-    pricing_type,
-    price_amount,
-    updated_at,
-    users!inner(first_name, last_name),
-    listingsskills!inner(skill_id)
-  `)
-  .eq('status', 'active')
-  .in('listingsskills.skill_id', skills)
-  .limit(numReturn)
-}
-
-/*
-Search for jobs using skills. Order by updated time
-The data used can be handled more on the front end side.
-Takes skills in a format like (1, 2)
-Only returns the number from numReturn. Calls can double this
-*/
-export async function getJobsBySkillsTime(skills, numReturn){
-  return await supabase
-  .from('listings')
-  .select(`
-    listing_id,
-    student_id,
-    title,
-    description,
-    status,
-    location_text,
-    pricing_type,
-    price_amount,
-    updated_at,
-    users!inner(first_name, last_name),
-    listingsskills!inner(skill_id)
-  `)
-  .eq('status', 'active')
-  .in('listingsskills.skill_id', skills)
-  .order('updated_at', { ascending: false })
-  .limit(numReturn)
-}
 
 // ─────────────────────────────────────────────────
-// Messages / Conversations
+// REPORTS
 // ─────────────────────────────────────────────────
-
-export async function createConversation({ initiatorUserId, recipientUserId }) {
-  return await supabase
-    .from("conversations")
-    .insert({
-      request_id: null, booking_id: null,
-      initiator_user_id: initiatorUserId,
-      recipient_user_id: recipientUserId,
-    })
-    .select("conversation_id, created_at, initiator_user_id, recipient_user_id")
-    .single();
-}
-
-export async function sendMessage({ conversationId, senderUserId, body }) {
-  return await supabase
-    .from("messages")
-    .insert({
-      conversation_id: conversationId,
-      sender_user_id: senderUserId,
-      body,
-      sent_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-}
-
-export async function getMessagesForConversation(conversationId) {
-  return await supabase
-    .from("messages")
-    .select(`
-      message_id,
-      body,
-      sent_at,
-      sender_user_id,
-      users!messages_sender_user_id_fkey (
-        first_name,
-        last_name
-      )
-    `)
-    .eq("conversation_id", conversationId)
-    .order("sent_at", { ascending: true });
-}
-
-export async function getConversationsForUser(userId) {
-  return await supabase
-    .from("conversations")
-    .select(`
-      conversation_id, created_at,
-      initiator_user_id, recipient_user_id,
-      initiator:users!conversations_initiator_user_id_fkey(user_id, first_name, last_name),
-      recipient:users!conversations_recipient_user_id_fkey(user_id, first_name, last_name),
-      messages(message_id, body, sent_at, sender_user_id)
-    `)
-    .or(`initiator_user_id.eq.${userId},recipient_user_id.eq.${userId}`)
-    .order("created_at", { ascending: false });
-}
-/*
-There's no reason for multiple conversations between the same user to exist. Checks if one exists before making a new one
-*/
-export async function doesConvoExist(senderId, receiverId) {
-  return await supabase 
-  .from("conversations")
-  .select(`recipient_user_id, initiator_user_id`)
-  .or(`and(initiator_user_id.eq.${senderId}, recipient_user_id.eq.${receiverId}), and(recipient_user_id.eq.${senderId}, initiator_user_id.eq.${receiverId}))`);
-}
-
-
-export async function deactivateUser(userId) {
-  return await supabase
-    .from("users")
-    .update({
-      is_active: false,
-      account_status: "deleted",
-    })
-    .eq("user_id", userId);
-}
-
-export async function approveDeletionRequest(userId) {
-  return await supabase
-    .from("users")
-    .update({
-      is_active: false,
-      delete_requested: false,
-      delete_request_status: "approved",
-      delete_request_review_note:
-        "Your deletion request was approved and your account has been closed.",
-      account_status: "deleted",
-    })
-    .eq("user_id", userId)
-    .select()
-    .single();
-}
-
-export async function rejectDeletionRequest(userId, reason) {
-  return await supabase
-    .from("users")
-    .update({
-      delete_requested: false,
-      delete_request_status: "denied",
-      delete_request_review_note: reason,
-      account_status: "active",
-    })
-    .eq("user_id", userId)
-    .select()
-    .single();
-}
-
-export async function requestAccountDeletion(userId, reason) {
-  return await supabase
-    .from("users")
-    .update({
-      delete_requested: true,
-      delete_request_reason: reason,
-      delete_request_status: "pending",
-      delete_request_review_note: null,
-      account_status: "deletion_requested",
-    })
-    .eq("user_id", userId)
-    .select()
-    .single();
-}
-
-export async function hardDeleteUser(userId) {
-  return await supabase
-    .from("users")
-    .delete()
-    .eq("user_id", userId);
-}
-
-export async function hardDeleteUserAccount(userId) {
-  return await supabase.rpc("hard_delete_user_account", {
-    target_user_id: userId,
-  });
-}
-
 
 export async function createListingReport({
   listingId,
@@ -981,8 +969,7 @@ export async function createUserReport({
   reason,
   details,
 }) {
-  // Insert the report record
-  const result = await supabase
+  return await supabase
     .from("user_reports")
     .insert({
       reported_user_id: reportedUserId,
@@ -993,32 +980,7 @@ export async function createUserReport({
     })
     .select()
     .single();
-
-  if (result.error) return result;
-
-  // Increment report_count on the reported user so the admin Users tab flags them.
-  // Read-then-write is acceptable here (capstone, non-critical race condition).
-  try {
-    const { data: userData } = await supabase
-      .from("users")
-      .select("report_count")
-      .eq("user_id", reportedUserId)
-      .single();
-
-    if (userData) {
-      await supabase
-        .from("users")
-        .update({ report_count: (userData.report_count || 0) + 1 })
-        .eq("user_id", reportedUserId);
-    }
-  } catch (err) {
-    // Non-fatal — report was created, count update is best-effort
-    console.warn("Could not increment report_count:", err);
-  }
-
-  return result;
 }
-
 
 export async function getPendingListingReports() {
   return await supabase
@@ -1038,8 +1000,7 @@ export async function getPendingListingReports() {
         title,
         location_text,
         price_amount,
-        pricing_type,
-        student_id
+        pricing_type
       ),
       owner:users!listing_reports_listing_owner_user_id_fkey (
         user_id,
@@ -1057,6 +1018,7 @@ export async function getPendingListingReports() {
     .eq("status", "pending")
     .order("created_at", { ascending: false });
 }
+
 export async function getPendingUserReports() {
   return await supabase
     .from("user_reports")
@@ -1067,6 +1029,7 @@ export async function getPendingUserReports() {
       reason,
       details,
       status,
+      admin_note,
       created_at,
       reported_user:users!user_reports_reported_user_id_fkey (
         user_id,
@@ -1085,75 +1048,259 @@ export async function getPendingUserReports() {
     .order("created_at", { ascending: false });
 }
 
-
-
-/**
- * Hard-delete a listing and ALL related data in dependency order.
- * Done in JS to avoid FK constraint errors without requiring a new migration.
- * Cascade order:
- *   reviews → payments → bookings → bookingrequests
- *   → listing_reports → listingsskills → listings
- */
-export async function hardDeleteListingFull(listingId) {
-  // 1. Find all confirmed booking IDs for this listing (needed for reviews/payments)
-  const { data: bookingRows, error: bookingFetchErr } = await supabase
-    .from("bookings")
-    .select("bookings_id")
-    .eq("listing_id", listingId);
-
-  if (bookingFetchErr) return { data: null, error: bookingFetchErr };
-
-  const bookingIds = (bookingRows || []).map((b) => b.bookings_id);
-
-  // 2. Delete reviews tied to those bookings
-  if (bookingIds.length > 0) {
-    const { error: reviewsErr } = await supabase
-      .from("reviews")
-      .delete()
-      .in("booking_id", bookingIds);
-    if (reviewsErr) return { data: null, error: reviewsErr };
-
-    // 3. Delete payments tied to those bookings
-    const { error: paymentsErr } = await supabase
-      .from("payments")
-      .delete()
-      .in("booking_id", bookingIds);
-    if (paymentsErr) return { data: null, error: paymentsErr };
-  }
-
-  // 4. Delete confirmed bookings for this listing
-  const { error: bookingsErr } = await supabase
-    .from("bookings")
-    .delete()
-    .eq("listing_id", listingId);
-  if (bookingsErr) return { data: null, error: bookingsErr };
-
-  // 5. Delete booking requests for this listing (was the FK error root cause)
-  const { error: requestsErr } = await supabase
-    .from("bookingrequests")
-    .delete()
-    .eq("listing_id", listingId);
-  if (requestsErr) return { data: null, error: requestsErr };
-
-  // 6. Delete listing reports
-  const { error: reportsErr } = await supabase
-    .from("listing_reports")
-    .delete()
-    .eq("listing_id", listingId);
-  if (reportsErr) return { data: null, error: reportsErr };
-
-  // 7. Delete skill tags
-  const { error: skillsErr } = await supabase
-    .from("listingsskills")
-    .delete()
-    .eq("listing_id", listingId);
-  if (skillsErr) return { data: null, error: skillsErr };
-
-  // 8. Finally delete the listing itself
+export async function resolveListingReport(reportId, status = "resolved", adminNote = null) {
   return await supabase
-    .from("listings")
-    .delete()
-    .eq("listing_id", listingId);
+    .from("listing_reports")
+    .update({
+      status,
+      admin_note: adminNote,
+    })
+    .eq("report_id", reportId)
+    .select()
+    .single();
+}
+
+export async function resolveUserReport(reportId, status = "resolved", adminNote = null) {
+  return await supabase
+    .from("user_reports")
+    .update({
+      status,
+      admin_note: adminNote,
+    })
+    .eq("report_id", reportId)
+    .select()
+    .single();
+}
+
+// ─────────────────────────────────────────────────
+// MESSAGES / CONVERSATIONS
+// ─────────────────────────────────────────────────
+
+export async function createConversation({ initiatorUserId, recipientUserId }) {
+  return await supabase
+    .from("conversations")
+    .insert({
+      request_id: null,
+      booking_id: null,
+      initiator_user_id: initiatorUserId,
+      recipient_user_id: recipientUserId,
+    })
+    .select("conversation_id, created_at, initiator_user_id, recipient_user_id")
+    .single();
+}
+
+export async function sendMessage({ conversationId, senderUserId, body }) {
+  return await supabase
+    .from("messages")
+    .insert({
+      conversation_id: conversationId,
+      sender_user_id: senderUserId,
+      body,
+      sent_at: nowIso(),
+    })
+    .select()
+    .single();
+}
+
+export async function getMessagesForConversation(conversationId) {
+  return await supabase
+    .from("messages")
+    .select(`
+      message_id,
+      body,
+      sent_at,
+      sender_user_id,
+      users!messages_sender_user_id_fkey (
+        first_name,
+        last_name
+      )
+    `)
+    .eq("conversation_id", conversationId)
+    .order("sent_at", { ascending: true });
+}
+
+export async function getConversationsForUser(userId) {
+  return await supabase
+    .from("conversations")
+    .select(`
+      conversation_id,
+      created_at,
+      initiator_user_id,
+      recipient_user_id,
+      initiator:users!conversations_initiator_user_id_fkey(user_id, first_name, last_name),
+      recipient:users!conversations_recipient_user_id_fkey(user_id, first_name, last_name),
+      messages(message_id, body, sent_at, sender_user_id)
+    `)
+    .or(`initiator_user_id.eq.${userId},recipient_user_id.eq.${userId}`)
+    .order("created_at", { ascending: false });
+}
+
+export async function doesConvoExist(senderId, receiverId) {
+  return await supabase
+    .from("conversations")
+    .select("recipient_user_id, initiator_user_id")
+    .or(
+      `and(initiator_user_id.eq.${senderId},recipient_user_id.eq.${receiverId}),and(recipient_user_id.eq.${senderId},initiator_user_id.eq.${receiverId})`
+    );
+}
+
+// ─────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────
+
+export async function createNotification({ userId, type, message }) {
+  return await supabase
+    .from("notifications")
+    .insert({
+      user_id: userId,
+      type,
+      channel: "in_app",
+      status: "unread",
+      message,
+      created_at: nowIso(),
+    })
+    .select()
+    .single();
+}
+
+export async function getNotificationsForUser(userId) {
+  return await supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+}
+
+export async function markNotificationAsRead(notificationId) {
+  return await supabase
+    .from("notifications")
+    .update({ status: "read" })
+    .eq("notification_id", notificationId)
+    .select()
+    .single();
+}
+
+export async function markAllNotificationsAsRead(userId) {
+  return await supabase
+    .from("notifications")
+    .update({ status: "read" })
+    .eq("user_id", userId)
+    .eq("status", "unread");
+}
+
+export async function markNotificationCleared(notificationId) {
+  return await supabase
+    .from("notifications")
+    .update({ status: "cleared" })
+    .eq("notification_id", notificationId)
+    .select()
+    .single();
+}
+
+// ─────────────────────────────────────────────────
+// PAYMENTS
+// ─────────────────────────────────────────────────
+
+export async function createPayment({
+  booking_id,
+  customer_id,
+  student_id,
+  amount,
+  status = "Unpaid",
+  provider = "manual",
+  provider_payment_id = null,
+}) {
+  return await supabase
+    .from("payments")
+    .insert({
+      booking_id,
+      customer_id,
+      student_id,
+      amount,
+      status,
+      provider,
+      provider_payment_id,
+      created_at: nowIso(),
+    })
+    .select()
+    .single();
+}
+
+export async function getPaymentsByClient(customerId) {
+  return await supabase
+    .from("payments")
+    .select(`
+      payment_id,
+      booking_id,
+      customer_id,
+      student_id,
+      amount,
+      status,
+      provider,
+      created_at,
+      bookings(
+        bookings_id,
+        listing_id,
+        listings(
+          title
+        )
+      ),
+      customer:users!payments_customer_id_fkey(
+        user_id,
+        first_name,
+        last_name
+      ),
+      student:users!payments_student_id_fkey(
+        user_id,
+        first_name,
+        last_name
+      )
+    `)
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+}
+
+export async function getPaymentsForStudent(studentId) {
+  return await supabase
+    .from("payments")
+    .select(`
+      payment_id,
+      booking_id,
+      customer_id,
+      student_id,
+      amount,
+      status,
+      provider,
+      created_at,
+      bookings(
+        bookings_id,
+        listing_id,
+        listings(
+          title
+        )
+      ),
+      customer:users!payments_customer_id_fkey(
+        user_id,
+        first_name,
+        last_name
+      ),
+      student:users!payments_student_id_fkey(
+        user_id,
+        first_name,
+        last_name
+      )
+    `)
+    .eq("student_id", studentId)
+    .order("created_at", { ascending: false });
+}
+
+export async function updatePaymentStatus(paymentId, status) {
+  return await supabase
+    .from("payments")
+    .update({ status })
+    .eq("payment_id", paymentId)
+    .select()
+    .single();
 }
 
 export async function sendAdminMessageToUser(adminUserId, targetUserId, body) {
@@ -1202,186 +1349,3 @@ export async function sendAdminMessageToUser(adminUserId, targetUserId, body) {
     body,
   });
 }
-
-export async function resolveListingReport(reportId, status = "resolved", adminNote = null) {
-  return await supabase
-    .from("listing_reports")
-    .update({
-      status,
-      admin_note: adminNote,
-    })
-    .eq("report_id", reportId)
-    .select()
-    .single();
-}
-
-export async function resolveUserReport(reportId, status = "resolved", adminNote = null) {
-  return await supabase
-    .from("user_reports")
-    .update({
-      status,
-      admin_note: adminNote,
-    })
-    .eq("report_id", reportId)
-    .select()
-    .single();
-}
-
-export async function getListingReportCounts() {
-  return await supabase
-    .from("listing_reports")
-    .select("listing_id, status")
-    .eq("status", "pending");
-}
-
-export async function reactivateListing(listingId) {
-  return updateListing(listingId, { status: "active" });
-}
-
-// ─────────────────────────────────────────────────
-// NOTIFICATIONS
-// ─────────────────────────────────────────────────
- 
-/**
-Fetch all notifications for a user (newest first, max 50).
-Only selects the columns that actually exist in the table.
-*/
-export async function getNotificationsForUser(userId) {
-  return await supabase
-    .from("notifications")
-    .select("notification_id, type, channel, message, created_at")
-    .eq("user_id", userId)
-    .neq("status", "cleared")
-    .order("created_at", { ascending: false });
-}
- 
-/**
- Mark one notification as read.
-*/
-export async function markNotificationCleared(notificationId) {
-  return await supabase
-    .from("notifications")
-    .update({ status: "cleared" })
-    .eq("notification_id", notificationId);
-}
- 
-/**
-Create a notification.
-Only inserts columns that exist: user_id, type, channel, status.
-type values:
-  "message" | "booking_request" | "booking_accepted" |
-  "booking_declined" | "booking_cancelled" | "booking_update"
-Errors are logged but never thrown — notifications are non-critical.
-*/
-export async function createNotification({ userId, type, channel = "in_app", message = null, status = "sent" }) {
-  return await supabase
-    .from("notifications")
-    .insert([{ user_id: userId, type, channel, message, status }]);
-}
-// PAYMENTS
-// ───────────────────────────────────────────────__
-
-/** Create a payment log row once a booking is accepted/created. */
-export async function createPayment({
-  booking_id,
-  customer_id,
-  student_id,
-  amount,
-  status = "Unpaid",
-  provider = "manual",
-  provider_payment_id = null,
-}) {
-  return await supabase
-    .from("payments")
-    .insert({
-      booking_id,
-      customer_id,
-      student_id,
-      amount,
-      status,
-      provider,
-      provider_payment_id,
-      created_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-}
-
-/** Get all payments for a client. */
-export async function getPaymentsByClient(customerId) {
-  return await supabase
-    .from("payments")
-    .select(`
-      payment_id,
-      booking_id,
-      customer_id,
-      student_id,
-      amount,
-      status,
-      provider,
-      created_at,
-      bookings(
-        bookings_id,
-        listing_id,
-        listings(
-          title
-        )
-      ),
-      customer:users!payments_customer_id_fkey(
-        user_id,
-        first_name,
-        last_name
-      ),
-      student:users!payments_student_id_fkey(
-        user_id,
-        first_name,
-        last_name
-      )
-    `)
-    .eq("customer_id", customerId)
-    .order("created_at", { ascending: false });
-}
-
-/** Get all payments for a student. */
-export async function getPaymentsForStudent(studentId) {
-  return await supabase
-    .from("payments")
-    .select(`
-      payment_id,
-      booking_id,
-      customer_id,
-      student_id,
-      amount,
-      status,
-      provider,
-      created_at,
-      bookings(
-        bookings_id,
-        listing_id,
-        listings(
-          title
-        )
-      ),
-      customer:users!payments_customer_id_fkey(
-        user_id,
-        first_name,
-        last_name
-      ),
-      student:users!payments_student_id_fkey(
-        user_id,
-        first_name,
-        last_name
-      )
-    `)
-    .eq("student_id", studentId)
-    .order("created_at", { ascending: false });
-}
-
-/** Update just the payment status. */
-export async function updatePaymentStatus(paymentId, status) {
-  return await supabase
-    .from("payments")
-    .update({ status })
-    .eq("payment_id", paymentId)
-    .select()
-    .single(); }

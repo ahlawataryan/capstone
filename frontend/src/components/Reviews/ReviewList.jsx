@@ -2,10 +2,12 @@ import { useState } from "react";
 import { Card, Button, Modal, Alert, Row, Col } from "react-bootstrap";
 import RatingStars from "./RatingStars";
 import { deleteReview, upsertReview } from "../../services/supabaseapi";
+
 /*
-The reviews page is weird. There are two ways to edit reviews, and they both work and look different
-One looks better with alerts, and the other looks better on the page
+The reviews page is weird. There are two ways to edit reviews, and they both work and look different.
+One looks better with alerts, and the other looks better on the page.
 */
+
 export default function ReviewList({
   reviews = [],
   currentUserId,
@@ -83,6 +85,7 @@ export default function ReviewList({
   const handleDelete = async (reviewId) => {
     setError("");
     setSuccess("");
+
     const confirmed = window.confirm("Are you sure you want to delete this review?");
     if (!confirmed) return;
 
@@ -93,16 +96,17 @@ export default function ReviewList({
     setDeletingReviewId(null);
 
     if (error) {
-      alert(error.message || "Failed to delete review.");
       setError("Failed to delete review");
       return;
     }
 
+    setSuccess("Review deleted successfully.");
     if (onChanged) onChanged();
   };
 
   const canManageReview = (review) =>
-    currentUserRole === "client" && Number(review.reviewer_user_id) === Number(currentUserId);
+    currentUserRole === "client" &&
+    Number(review.reviewer_user_id) === Number(currentUserId);
 
   if (!reviews.length) {
     return (
