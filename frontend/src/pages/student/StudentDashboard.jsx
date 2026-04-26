@@ -9,8 +9,8 @@ import {
   getReviewSummary,
 } from "../../services/supabaseapi";
 import Carousel from 'react-bootstrap/Carousel';
-import slide1 from '../../assets/slide1.JPG';
-import slide2 from '../../assets/slide2.JPG';
+import slide1 from '../../assets/slide1.jpg';
+import slide2 from '../../assets/slide2.jpg';
 
 /*
 Student dashboard. The most complicated one

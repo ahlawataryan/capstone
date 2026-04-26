@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Form, Button, Alert, Row, Col } from "react-bootstrap";
-import { upsertReview } from "../../services/supabaseapi";
+import {
+  upsertReview,
+  getAcceptedBookingsForClientAndStudent,
+} from "../../services/supabaseapi";
 
 export default function ReviewForm({
   reviewerUserId,
@@ -18,9 +21,14 @@ export default function ReviewForm({
   const [professionalismRating, setProfessionalismRating] = useState(5);
   const [reliabilityRating, setReliabilityRating] = useState(5);
   const [comment, setComment] = useState("");
+
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+
+  const [checkingEligibility, setCheckingEligibility] = useState(true);
+  const [canReview, setCanReview] = useState(false);
+  const [eligibleBookingId, setEligibleBookingId] = useState(null);
 
   useEffect(() => {
     if (existingReview) {
@@ -40,6 +48,52 @@ export default function ReviewForm({
     }
   }, [existingReview]);
 
+  useEffect(() => {
+    const checkEligibility = async () => {
+      setCheckingEligibility(true);
+      setErr("");
+
+      if (!reviewerUserId || !revieweeUserId) {
+        setCanReview(false);
+        setEligibleBookingId(null);
+        setCheckingEligibility(false);
+        return;
+      }
+
+      if (existingReview) {
+        setCanReview(true);
+        setEligibleBookingId(existingReview.booking_id || null);
+        setCheckingEligibility(false);
+        return;
+      }
+
+      const { data, error } = await getAcceptedBookingsForClientAndStudent(
+        reviewerUserId,
+        revieweeUserId
+      );
+
+      if (error) {
+        setErr(error.message || "Could not verify review eligibility.");
+        setCanReview(false);
+        setEligibleBookingId(null);
+        setCheckingEligibility(false);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        setCanReview(true);
+        setEligibleBookingId(data[0].bookings_id);
+      } else {
+        setCanReview(false);
+        setEligibleBookingId(null);
+      }
+
+      setCheckingEligibility(false);
+    };
+
+    checkEligibility();
+  }, [reviewerUserId, revieweeUserId, existingReview]);
+
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
@@ -47,6 +101,11 @@ export default function ReviewForm({
 
     if (!reviewerUserId) return setErr("Missing reviewer id.");
     if (!revieweeUserId) return setErr("Missing student id.");
+
+    if (!canReview) {
+      setErr("You can only leave a review after the job has been accepted.");
+      return;
+    }
 
     setSaving(true);
 
@@ -62,7 +121,7 @@ export default function ReviewForm({
 
     const { error } = await upsertReview({
       reviewId: existingReview?.review_id || null,
-      bookingId: existingReview?.booking_id || null,
+      bookingId: existingReview?.booking_id || eligibleBookingId || null,
       reviewerUserId,
       revieweeUserId,
       rating: overall,
@@ -98,6 +157,28 @@ export default function ReviewForm({
       </Form.Select>
     </Form.Group>
   );
+
+  if (checkingEligibility) {
+    return (
+      <Card className="mb-4">
+        <Card.Header>{existingReview ? "Edit Your Review" : "Leave a Review"}</Card.Header>
+        <Card.Body>Checking review eligibility...</Card.Body>
+      </Card>
+    );
+  }
+
+  if (!existingReview && !canReview) {
+    return (
+      <Card className="mb-4">
+        <Card.Header>Leave a Review</Card.Header>
+        <Card.Body>
+          <Alert variant="warning" className="mb-0">
+            You can only leave a review after the job has been accepted.
+          </Alert>
+        </Card.Body>
+      </Card>
+    );
+  }
 
   return (
     <Card className="mb-4">

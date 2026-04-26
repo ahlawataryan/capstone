@@ -350,7 +350,8 @@ export default function Profile() {
                 <div className="card-body">
                   <h5 className="card-title mb-3">Profile Summary</h5>
                   <p className="mb-1">
-                    <strong>Average Rating:</strong> {reviewSummary.avg} / 5
+                    <strong>Average Rating:</strong>{" "}
+                    {reviewSummary.count === 0 ? "No reviews yet" : `${reviewSummary.avg} / 5`}
                   </p>
                   <p className="mb-1">
                     <strong>Total Reviews:</strong> {reviewSummary.count}
