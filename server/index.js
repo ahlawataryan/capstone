@@ -1,12 +1,17 @@
-require("dotenv").config();
+require('dotenv').config({ path: '/server/.env' });
 const express = require("express");
 const cors = require("cors");
 const Database = require("better-sqlite3");
 const jwt = require("jsonwebtoken");
 const jwksRsa = require("jwks-rsa");
-const ManagementClient = require("auth0");
+const { ManagementClient } = require("auth0");
 process.loadEnvFile();
 
+/*
+In the directory capstone/server, run node index.js. Then run npm run dev in frontend
+*/
+
+const port = 5000;
 const app = express();
 const corsOptions = {
   origin: 'http://localhost:5173',
@@ -16,24 +21,32 @@ const corsOptions = {
 app.use(express.json());
 app.use(cors(corsOptions));
 
-//http://localhost:5173/api/authmgt
-app.post("/api/authmgt", (req, res) => {
+//http://localhost:5000/api/authmgt
+app.post("/api/authmgt", async (req, res) => {
+  try{
   const toDelete = req.body.email;
   const client = new ManagementClient({
-    domain: 'dev-6qyiyqksmtwrjpbi.auth0.com',
+    domain: 'dev-6qyiyqksmtwrjpbi.us.auth0.com',
     clientId: process.env.AUTH0_MANAGEMENT_CLIENT_ID,
     clientSecret: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET
   });
   let user = await client.users.listUsersByEmail({
-    fields: "fields",
+    fields: 'user_id',
     include_fields: true,
     email: toDelete,
   });
+  console.log(user[0].user_id);
   if(user){
-    await client.users.delete(user.user_id);
+    await client.users.delete(user[0].user_id);
+    res.send('User successfully deleted');
   }
+} catch (err) {
+  console.log(err);
+  res.send('Failed to delete user');
+}
 });
 
+app.get("/", (req, res) => console.log("Ok"));
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 //Pretty sure this is all garbage
@@ -117,8 +130,6 @@ app.post("/api/dev/set-role", requireAuth, (req, res) => {
   res.json({ ok: true, role });
 });
 
-
-
-const port = process.env.PORT || 5001;
+//port 5173
 app.listen(port, () => console.log(`Server running on ${port}`));
 

@@ -1,7 +1,5 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import express from 'express';
-import cors from 'cors';
 
 // https://vite.dev/config/
 export default defineConfig({

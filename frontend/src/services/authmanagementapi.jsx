@@ -5,7 +5,7 @@ import { ManagementClient } from 'auth0';
 //I might have configured it to prevent duplicate emails anyways
 export async function deleteAuthUserByEmail(userEmail) {
     try{
-        const response = await fetch('http://localhost:5173/api/authmgt', {
+        const response = await fetch('http://localhost:5000/api/authmgt', {
         mode: 'cors',
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
