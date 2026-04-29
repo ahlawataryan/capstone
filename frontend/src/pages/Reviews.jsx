@@ -223,7 +223,7 @@ export default function Reviews() {
             {dbUser?.role === "student" && (
               <Card className="mb-3 shadow-sm">
                 <Card.Body className="text-muted">
-                  These are the reviews clients have left for you.
+                  Reviews for: {student.first_name} {student.last_name}
                 </Card.Body>
               </Card>
             )}
