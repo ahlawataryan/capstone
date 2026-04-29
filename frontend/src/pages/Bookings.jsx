@@ -19,6 +19,10 @@ import {
   createListingReport,
   createUserReport,
   getReviewByReviewerAndStudent,
+  getUserById,
+  getReviewSummary,
+  getListingsByStudent,
+getIcon,
 } from "../services/supabaseapi";
 
 /*
@@ -80,6 +84,9 @@ export default function Bookings() {
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const [profileModal, setProfileModal] = useState(null);
+  const [imageModal, setImageModal] = useState(null);
 
   useEffect(() => {
     if (user?.email) fetchData();
@@ -533,6 +540,39 @@ export default function Bookings() {
   const sentList = role === "student" ? sentRequests : clientSentRequests;
   const activeBookingsList = role === "student" ? studentBookings : clientBookings;
 
+  const openProfileModal = async (userId) => {
+    if (!userId) return;
+
+    try {
+      const [
+        { data: userData, error: userError },
+        { data: summaryData, error: summaryError },
+        { data: listingsData, error: listingsError },
+      ] = await Promise.all([
+        getUserById(userId),
+        getReviewSummary(userId),
+        getListingsByStudent(userId),
+      ]);
+
+      if (userError) throw userError;
+      if (summaryError) throw summaryError;
+      if (listingsError) throw listingsError;
+
+      const activeListings = (listingsData || []).filter(
+        (item) => item.status === "active"
+      );
+
+      setProfileModal({
+        ...userData,
+        reviewSummary: summaryData,
+        activeListings,
+      });
+    } catch (err) {
+      console.error("Failed to load profile:", err);
+      setError("Failed to load profile.");
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -587,8 +627,14 @@ export default function Bookings() {
 
                         <div className="card-body">
                           <p className="text-muted small mb-1">
-                            To: {req.listings?.users?.first_name}{" "}
-                            {req.listings?.users?.last_name}
+                            To:{" "}
+                            <button
+                              type="button"
+                              className="btn btn-link p-0 align-baseline"
+                              onClick={() => openProfileModal(req.listings?.users?.user_id)}
+                            >
+                              {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                            </button>
                           </p>
 
                           {(() => {
@@ -659,9 +705,32 @@ export default function Bookings() {
                         </div>
 
                         <div className="card-body">
-                          <p className="text-muted small mb-1">
-                            From: {req.users?.first_name} {req.users?.last_name}
-                          </p>
+                            {req.customer_id === dbUser?.user_id ? (
+                              <p className="text-muted small mb-1">
+                                Student:{" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-link p-0 align-baseline"
+                                  onClick={() => openProfileModal(req.listings?.users?.user_id)}
+                                >
+                                  {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                                </button>
+                              </p>
+                            ) : (
+                              <p className="text-muted small mb-1">
+                                Client:{" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-link p-0 align-baseline"
+                                  onClick={() => openProfileModal(req.users?.user_id)}
+                                >
+                                  {req.users?.first_name} {req.users?.last_name}
+                                </button>
+                              </p>
+                            )}
+
+                          
+                          
 
                           {req.users?.email && (
                             <p className="text-muted small mb-1">{req.users.email}</p>
@@ -766,12 +835,25 @@ export default function Bookings() {
                           <div className="card-body">
                             {booking.customer_id === dbUser?.user_id ? (
                               <p className="text-muted small mb-1">
-                                Student: {booking.listings?.users?.first_name}{" "}
-                                {booking.listings?.users?.last_name}
+                                Student:{" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-link p-0 align-baseline"
+                                  onClick={() => openProfileModal(booking.listings?.users?.user_id)}
+                                >
+                                  {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
+                                </button>
                               </p>
                             ) : (
                               <p className="text-muted small mb-1">
-                                Client: {booking.users?.first_name} {booking.users?.last_name}
+                                Client:{" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-link p-0 align-baseline"
+                                  onClick={() => openProfileModal(booking.users?.user_id)}
+                                >
+                                  {booking.users?.first_name} {booking.users?.last_name}
+                                </button>
                               </p>
                             )}
 
@@ -973,6 +1055,132 @@ export default function Bookings() {
             </div>
           </div>
         )}
+
+        {profileModal && (
+                  <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
+                    <div className="modal-dialog modal-dialog-centered modal-lg">
+                      <div className="modal-content">
+                        <div className="modal-header">
+                          <h5 className="modal-title">
+                            Profile View
+                          </h5>
+                          <button type="button" className="btn-close" onClick={() => setProfileModal(null)} />
+                        </div>
+        
+                        <div className="modal-body">
+                          <div className="text-center mb-3">
+                            <div
+                              className="align-items-center justify-content-center mx-auto mb-2"
+                              style={{ width: "60px", height: "60px", fontSize: "1.5rem" }}
+                            >
+                              <img
+                                src={
+                                  profileModal?.icon_url
+                                    ? getIcon(profileModal.icon_url).data.publicUrl
+                                    : "https://placehold.co/60x60"
+                                }
+                                alt="Profile"
+                                className="rounded-circle mb-2"
+                                width="60"
+                                height="60"
+                                style={{ objectFit: "cover", cursor: "pointer" }}
+                                onClick={() =>
+                                  setImageModal(
+                                    profileModal?.icon_url
+                                      ? getIcon(profileModal.icon_url).data.publicUrl
+                                      : "https://placehold.co/300x300"
+                                  )
+                                }
+                              />
+                            </div>
+        
+                            <h5 className="mb-0">
+                              {profileModal?.first_name} {profileModal?.last_name}
+                            </h5>
+        
+                            <p className="text-muted small mb-0">{profileModal?.email}</p>
+                          </div>
+        
+                          <div className="mb-3">
+                            <h6 className="fw-bold">About</h6>
+                            <p className="text-muted mb-0">{profileModal?.bio || "No bio provided yet."}</p>
+                          </div>
+        
+                          <div className="mb-3">
+                            <h6 className="fw-bold">Contact</h6>
+                            <p className="mb-1">
+                              <i className="bi bi-envelope me-2 text-primary"></i>
+                              {profileModal?.email}
+                            </p>
+                            <p className="mb-0">
+                              <i className="bi bi-telephone me-2 text-primary"></i>
+                              {profileModal?.phone || "Not added"}
+                            </p>
+                          </div>
+        
+                          <div className="mb-4">
+                            <h6 className="fw-bold mb-2">Reviews</h6>
+                            <p className="mb-0">
+                              Average Rating: {profileModal?.reviewSummary?.avg || 0} / 5
+                            </p>
+                            <p className="mb-0">
+                              Total Reviews: {profileModal?.reviewSummary?.count || 0}
+                            </p>
+        
+                            <div className="mt-2">
+                              <button
+                                className="btn btn-link p-0 text-decoration-none"
+                                onClick={() => navigate(`/reviews?studentId=${profileModal.user_id}`)}
+                              >
+                                View all reviews →
+                              </button>
+                            </div>
+                          </div>
+        
+                          <div className="mb-3">
+                            <h6 className="fw-bold">Active Listings</h6>
+        
+                            {profileModal?.activeListings?.length > 0 ? (
+                              <div className="d-flex flex-column gap-2">
+                                {profileModal.activeListings.map((item) => (
+                                  <button
+                                    key={item.listing_id}
+                                    type="button"
+                                    className="border rounded p-2 text-start bg-white w-100"
+                                    onClick={() => {
+                                      setProfileModal(null);
+                                    }}
+                                  >
+                                    <div className="fw-semibold">{item.title}</div>
+                                    <div className="small text-muted">
+                                      ${item.price_amount} ({item.pricing_type}) ·{" "}
+                                      {item.location_text || "Remote"}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-muted mb-0">No active listings right now.</p>
+                            )}
+                          </div>
+                        </div>
+        
+                        <div className="modal-footer">
+                          <button
+                            className="btn btn-outline-danger me-auto"
+                            onClick={() => openReportModal({ type: "user", target: profileModal })}
+                          >
+                            Report User
+                          </button>
+        
+                          <button className="btn btn-outline-secondary" onClick={() => setProfileModal(null)}>
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
         {reportModal && (
           <div

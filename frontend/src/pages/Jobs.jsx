@@ -115,6 +115,8 @@ export default function Jobs() {
 
   const [profileModal, setProfileModal] = useState(null);
 
+  const [imageModal, setImageModal] = useState(null);
+
   const [newListing, setNewListing] = useState({
     title: "",
     description: "",
@@ -803,7 +805,9 @@ export default function Jobs() {
 
                       <div className="card-body">
                         <div className="d-flex align-items-center gap-2 mb-2">
-                          <img
+                          <img 
+                            type="button" 
+                            onClick={() => openProfileModal(listing)}
                             src={
                               listing.users?.icon_url
                                 ? getIcon(listing.users.icon_url).data.publicUrl
@@ -811,8 +815,8 @@ export default function Jobs() {
                             }
                             alt="Profile"
                             className="rounded-circle"
-                            width="40"
-                            height="40"
+                            width="60"
+                            height="60"
                             style={{ objectFit: "cover" }}
                           />
                           <p className="text-muted small mb-0">
@@ -1373,7 +1377,7 @@ export default function Jobs() {
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">
-                    {profileModal.first_name} {profileModal.last_name}
+                    Profile View
                   </h5>
                   <button type="button" className="btn-close" onClick={() => setProfileModal(null)} />
                 </div>
@@ -1381,10 +1385,28 @@ export default function Jobs() {
                 <div className="modal-body">
                   <div className="text-center mb-3">
                     <div
-                      className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-2"
+                      className="align-items-center justify-content-center mx-auto mb-2"
                       style={{ width: "60px", height: "60px", fontSize: "1.5rem" }}
                     >
-                      {profileModal?.first_name?.[0]}
+                      <img
+                        src={
+                          profileModal?.icon_url
+                            ? getIcon(profileModal.icon_url).data.publicUrl
+                            : "https://placehold.co/60x60"
+                        }
+                        alt="Profile"
+                        className="rounded-circle mb-2"
+                        width="60"
+                        height="60"
+                        style={{ objectFit: "cover", cursor: "pointer" }}
+                        onClick={() =>
+                          setImageModal(
+                            profileModal?.icon_url
+                              ? getIcon(profileModal.icon_url).data.publicUrl
+                              : "https://placehold.co/300x300"
+                          )
+                        }
+                      />
                     </div>
 
                     <h5 className="mb-0">
@@ -1474,6 +1496,24 @@ export default function Jobs() {
                     Close
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {imageModal && (
+          <div
+            className="modal fade show"
+            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.8)" }}
+            onClick={() => setImageModal(null)}
+          >
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content bg-transparent border-0 text-center">
+                <img
+                  src={imageModal}
+                  alt="Enlarged"
+                  style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: "10px" }}
+                />
               </div>
             </div>
           </div>
