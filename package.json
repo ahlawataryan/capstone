@@ -1,6 +1,17 @@
 {
   "dependencies": {
     "@auth0/auth0-react": "^2.13.0",
-    "@supabase/supabase-js": "^2.98.0"
+    "@supabase/supabase-js": "^2.98.0",
+    "auth0": "^5.8.0",
+    "axios": "^1.15.2",
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.0",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^3.2.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
   }
 }
