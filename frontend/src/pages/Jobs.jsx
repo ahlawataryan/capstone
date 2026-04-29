@@ -4,21 +4,26 @@ import { useAuth0 } from "@auth0/auth0-react";
 import Navbar from "../components/Navbar";
 import {
   getUserByEmail,
+  getUserById,
   getAllSkills,
   getSkillsForStudent,
   getActiveListings,
   getListingsByStudent,
+  getActiveBookingListingsForClient,
   createListing,
   updateListing,
   deactivateListing,
-  addSkillToListing,
   reactivateListing,
-  hardDeleteListingFull,
+  addSkillToListing,
   createBookingRequest,
   getBookingRequestsForStudent,
   createConversation,
   sendMessage,
   createNotification,
+  getReviewSummary,
+  createListingReport,
+  createUserReport,
+  getIcon,
 } from "../services/supabaseapi";
 
 /*
@@ -27,24 +32,34 @@ Additionally initiates booking requests and sends initial messages.
 Also supports reporting scam listings or scam profiles.
 */
 
-
-/*
-Status badge for job listings.
-Only used by students when viewing their own listings since 
-job listings are hidden from the jobs page for others once they're booked
-*/
 const BOOKING_STATUS_BADGE = {
-  active:    { label: "Available",  cls: "bg-success" },
-  booked:    { label: "Booked",     cls: "bg-warning text-dark" },
-  completed: { label: "Completed",  cls: "bg-info text-dark" },
-  inactive:  { label: "Inactive",   cls: "bg-secondary" },
+  active: { label: "Available", cls: "bg-success" },
+  booked: { label: "Booked", cls: "bg-warning text-dark" },
+  completed: { label: "Completed", cls: "bg-info text-dark" },
+  inactive: { label: "Inactive", cls: "bg-secondary" },
 };
- 
+
 function getListingBookingStatus(listing) {
   const bookings = listing.bookings || [];
-  if (bookings.some((b) => b.status === "confirmed")) return "booked";
-  if (bookings.some((b) => b.status === "completed")) return "completed";
+
+  const hasActiveConfirmedBooking = bookings.some(
+    (booking) =>
+      booking.status === "confirmed" &&
+      booking.end_at &&
+      new Date(booking.end_at).getTime() >= Date.now()
+  );
+
+  const hasPastBooking = bookings.some(
+    (booking) =>
+      booking.status === "completed" ||
+      (booking.status === "confirmed" &&
+        booking.end_at &&
+        new Date(booking.end_at).getTime() < Date.now())
+  );
+
+  if (hasActiveConfirmedBooking) return "booked";
   if (listing.status === "inactive") return "inactive";
+  if (hasPastBooking) return "completed";
   return "active";
 }
 
@@ -59,9 +74,10 @@ export default function Jobs() {
   const [clientActiveListings, setClientActiveListings] = useState([]);
   const [skills, setSkills] = useState([]);
   const [studentSkills, setStudentSkills] = useState([]);
-  
+
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("browse");
+
   const [hiring, setHiring] = useState(false);
   const [hireModal, setHireModal] = useState(null);
   const [hireForm, setHireForm] = useState({
@@ -71,8 +87,9 @@ export default function Jobs() {
   });
 
   const [showCreateModal, setShowCreateModal] = useState(false);
-  
+
   const [editModal, setEditModal] = useState(null);
+
   const [messageModal, setMessageModal] = useState(null);
   const [messageBody, setMessageBody] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -107,8 +124,6 @@ export default function Jobs() {
     selectedSkills: [],
   });
 
-  
-
   const [reportModal, setReportModal] = useState(null);
   const [reportType, setReportType] = useState("");
   const [reportReason, setReportReason] = useState("");
@@ -119,21 +134,21 @@ export default function Jobs() {
   const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    if (user?.email) fetchData();
+    if (user?.email) {
+      fetchData();
+    }
   }, [user]);
 
   const fetchData = async () => {
     try {
+      setLoading(true);
+
       const { data: userData, error: userError } = await getUserByEmail(user.email);
       if (userError) throw userError;
 
       setDbUser(userData);
       setRole(userData.role);
 
-      /*
-      Get all skills. Can be matched with numbers later
-      No in app error handling
-      */
       await Promise.all([
         fetchListings(),
         fetchMyListings(userData),
@@ -148,14 +163,15 @@ export default function Jobs() {
           const profileSkills = studentSkillData.map((row) => row.skills).filter(Boolean);
           setStudentSkills(profileSkills);
         }
-
-        const { data: myListingData } = await getListingsByStudent(userData.user_id);
-        setMyListings(myListingData || []);
       }
 
       if (userData.role === "client") {
-        const { data: activeData } = await getActiveBookingListingsForClient(userData.user_id);
-        setClientActiveListings(activeData || []);
+        const { data: activeData, error: activeError } =
+          await getActiveBookingListingsForClient(userData.user_id);
+
+        if (!activeError) {
+          setClientActiveListings(activeData || []);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch data:", err);
@@ -176,7 +192,7 @@ export default function Jobs() {
     const { data, error } = await getListingsByStudent(userData.user_id);
     if (!error) setMyListings(data || []);
   };
- 
+
   const fetchSkills = async () => {
     const { data, error } = await getAllSkills();
     if (!error) setSkills(data || []);
@@ -209,6 +225,10 @@ export default function Jobs() {
 
   const filtered = listings.filter((listing) => {
     if (role === "student" && dbUser && listing.student_id === dbUser.user_id) {
+      return false;
+    }
+
+    if (getListingBookingStatus(listing) !== "active") {
       return false;
     }
 
@@ -254,6 +274,11 @@ export default function Jobs() {
 
     if (!dbUser || !hireModal) return;
 
+    if (getListingBookingStatus(hireModal) !== "active") {
+      setError("This listing is no longer available.");
+      return;
+    }
+
     if (!hireForm.startDate || !hireForm.endDate) {
       setError("Please set a start and end date.");
       return;
@@ -267,7 +292,7 @@ export default function Jobs() {
     setHiring(true);
 
     try {
-      const { error } = await createBookingRequest({
+      const { data: createdRequest, error } = await createBookingRequest({
         customer_id: dbUser.user_id,
         listing_id: hireModal.listing_id,
         requested_start_at: new Date(hireForm.startDate).toISOString(),
@@ -277,29 +302,20 @@ export default function Jobs() {
 
       if (error) throw error;
 
-      //Initiate a message and notify the student
       const studentUserId = hireModal.users?.user_id;
-      if (studentUserId) {
-        // Get the created request ID for the notification
-        const { data: requestData } = await getBookingRequestsForStudent(studentUserId);
-        const latestRequest = requestData?.find(r => 
-          r.customer_id === dbUser.user_id && 
-          r.listing_id === hireModal.listing_id
-        );
-        
-        if (latestRequest) {
-          await createNotification({
-            userId: studentUserId,
-            type: "booking_request:" + latestRequest.request_id,
-            message: `New hire request for "${hireModal.title}" from ${dbUser.first_name} ${dbUser.last_name}`,
-          });
-        }
+      if (studentUserId && createdRequest?.request_id) {
+        await createNotification({
+          userId: studentUserId,
+          type: "booking_request:" + createdRequest.request_id,
+          message: `New hire request for "${hireModal.title}" from ${dbUser.first_name} ${dbUser.last_name}`,
+        });
       }
-      alert("Hire request sent!");
+
+      setSuccess("Hire request sent!");
       setHireModal(null);
     } catch (err) {
       console.error("Failed to hire:", err);
-      setError("Failed to send hire request.");
+      setError(err.message || "Failed to send hire request.");
     } finally {
       setHiring(false);
     }
@@ -340,13 +356,12 @@ export default function Jobs() {
       });
       if (msgError) throw msgError;
 
-      // Notify the recipient
       await createNotification({
         userId: recipientId,
         type: "message:" + convo.conversation_id,
-        message: "You have a new message from " + dbUser.first_name + " " + dbUser.last_name,
+        message: `You have a new message from ${dbUser.first_name} ${dbUser.last_name}`,
       });
-      //alert("Message sent!");
+
       setSuccess("Message sent!");
       setMessageModal(null);
       setMessageBody("");
@@ -355,28 +370,6 @@ export default function Jobs() {
       setError("Failed to send message.");
     } finally {
       setSendingMessage(false);
-    }
-  };
-
-  const handleDeleteListing = async () => {
-    setError("");
-    setSuccess("");
-
-    if (!deleteModal) return;
-    setDeleting(true);
-
-    try {
-      const { error } = await hardDeleteListingFull(deleteModal.listing_id);
-      if (error) throw error;
-
-      setSuccess(`"${deleteModal.title}" has been permanently deleted.`);
-      setDeleteModal(null);
-      await fetchListings();
-    } catch (err) {
-      console.error("Failed to delete listing:", err);
-      setError("Failed to delete listing.");
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -391,13 +384,10 @@ export default function Jobs() {
       const { error } = await deactivateListing(deactivateModal.listing_id);
       if (error) throw error;
 
-      setSuccess(
-        `"${deactivateModal.title}" has been deactivated and removed from the job board.`
-      );
+      setSuccess(`"${deactivateModal.title}" has been deactivated and removed from the job board.`);
       setDeactivateModal(null);
 
-      const { data: myListingData } = await getListingsByStudent(dbUser.user_id);
-      setMyListings(myListingData || []);
+      await fetchMyListings(dbUser);
       await fetchListings();
     } catch (err) {
       console.error("Failed to deactivate listing:", err);
@@ -418,13 +408,10 @@ export default function Jobs() {
       const { error } = await reactivateListing(reactivateModal.listing_id);
       if (error) throw error;
 
-      setSuccess(
-        `"${reactivateModal.title}" has been reactivated and added back to the job board.`
-      );
+      setSuccess(`"${reactivateModal.title}" has been reactivated and added back to the job board.`);
       setReactivateModal(null);
 
-      const { data: myListingData } = await getListingsByStudent(dbUser.user_id);
-      setMyListings(myListingData || []);
+      await fetchMyListings(dbUser);
       await fetchListings();
     } catch (err) {
       console.error("Failed to reactivate listing:", err);
@@ -470,6 +457,7 @@ export default function Jobs() {
         price_amount: "",
         selectedSkills: [],
       });
+
       await fetchListings();
       await fetchMyListings(dbUser);
     } catch (err) {
@@ -492,7 +480,9 @@ export default function Jobs() {
   const handleSaveEdit = async () => {
     setError("");
     setSuccess("");
+
     if (!editModal) return;
+
     try {
       const { error } = await updateListing(editModal.listing_id, {
         title: editModal.title,
@@ -501,7 +491,9 @@ export default function Jobs() {
         pricing_type: editModal.pricing_type,
         price_amount: Number(editModal.price_amount),
       });
+
       if (error) throw error;
+
       setSuccess("Listing updated successfully.");
       setEditModal(null);
       await fetchMyListings(dbUser);
@@ -512,13 +504,14 @@ export default function Jobs() {
     }
   };
 
-
   const handleReactivate = async (listingId) => {
     setError("");
     setSuccess("");
+
     try {
       const { error } = await updateListing(listingId, { status: "active" });
       if (error) throw error;
+
       setSuccess("Listing reactivated successfully.");
       await fetchMyListings(dbUser);
       await fetchListings();
@@ -537,6 +530,127 @@ export default function Jobs() {
     }));
   };
 
+  const openProfileModal = async (listing) => {
+    try {
+      const studentId = listing.student_id;
+      if (!studentId) return;
+
+      const [
+        { data: userData, error: userError },
+        { data: summaryData, error: summaryError },
+        { data: listingsData, error: listingsError },
+      ] = await Promise.all([
+        getUserById(studentId),
+        getReviewSummary(studentId),
+        getListingsByStudent(studentId),
+      ]);
+
+      if (userError) throw userError;
+      if (summaryError) throw summaryError;
+      if (listingsError) throw listingsError;
+
+      const activeListings = (listingsData || []).filter(
+        (item) => getListingBookingStatus(item) === "active"
+      );
+
+      setProfileModal({
+        ...userData,
+        reviewSummary: summaryData,
+        activeListings,
+      });
+    } catch (err) {
+      console.error("Failed to load profile modal:", err);
+      setError("Failed to load profile.");
+    }
+  };
+
+  const openListingReportModal = (listing) => {
+    setError("");
+    setSuccess("");
+
+    if (dbUser && listing?.student_id === dbUser.user_id) {
+      setError("You cannot report your own listing.");
+      return;
+    }
+
+    setReportType("listing");
+    setReportModal(listing);
+    setReportReason("");
+    setReportDetails("");
+  };
+
+  const openUserReportModal = (profileUser) => {
+    setError("");
+    setSuccess("");
+
+    if (dbUser && profileUser?.user_id === dbUser.user_id) {
+      setError("You cannot report your own profile.");
+      return;
+    }
+
+    setReportType("user");
+    setReportModal(profileUser);
+    setReportReason("");
+    setReportDetails("");
+  };
+
+  const submitReport = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!dbUser) {
+      setError("You must be logged in to submit a report.");
+      return;
+    }
+
+    if (!reportModal || !reportType) {
+      setError("No report target selected.");
+      return;
+    }
+
+    if (!reportReason) {
+      setError("Please choose a reason for the report.");
+      return;
+    }
+
+    try {
+      setReporting(true);
+
+      if (reportType === "listing") {
+        const { error } = await createListingReport({
+          listingId: reportModal.listing_id,
+          reportedByUserId: dbUser.user_id,
+          listingOwnerUserId: reportModal.student_id,
+          reason: reportReason,
+          details: reportDetails.trim() || null,
+        });
+
+        if (error) throw error;
+      }
+
+      if (reportType === "user") {
+        const { error } = await createUserReport({
+          reportedUserId: reportModal.user_id,
+          reportedByUserId: dbUser.user_id,
+          reason: reportReason,
+          details: reportDetails.trim() || null,
+        });
+
+        if (error) throw error;
+      }
+
+      setSuccess("Report submitted successfully. Admin will review it.");
+      setReportModal(null);
+      setReportType("");
+      setReportReason("");
+      setReportDetails("");
+    } catch (err) {
+      console.error("Failed to submit report:", err);
+      setError("Failed to submit report.");
+    } finally {
+      setReporting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -550,7 +664,9 @@ export default function Jobs() {
   const tabs = [
     { key: "browse", label: "Browse Jobs" },
     ...(role === "student" ? [{ key: "my", label: `My Listings (${myListings.length})` }] : []),
-    ...(role === "client" ? [{ key: "active", label: `Active Listings (${clientActiveListings.length})` }] : []),
+    ...(role === "client"
+      ? [{ key: "active", label: `Active Listings (${clientActiveListings.length})` }]
+      : []),
   ];
 
   return (
@@ -561,16 +677,12 @@ export default function Jobs() {
         <div className="d-flex justify-content-between align-items-center mb-4">
           <h2 className="mb-0">Available Jobs</h2>
           {role === "student" && (
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowCreateModal(true)}
-            >
+            <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
               + Post a Job
             </button>
           )}
         </div>
 
-        {/* Tabs */}
         {tabs.length > 1 && (
           <ul className="nav nav-tabs mb-4">
             {tabs.map((tab) => (
@@ -587,10 +699,19 @@ export default function Jobs() {
           </ul>
         )}
 
-        {error && <div className="alert alert-danger alert-dismissible mb-3">{error}<button type="button" className="btn-close float-end" onClick={() => setError("")} /></div>}
-        {success && <div className="alert alert-success alert-dismissible mb-3">{success}<button type="button" className="btn-close float-end" onClick={() => setSuccess("")} /></div>}
+        {error && (
+          <div className="alert alert-danger alert-dismissible mb-3">
+            {error}
+            <button type="button" className="btn-close float-end" onClick={() => setError("")} />
+          </div>
+        )}
+        {success && (
+          <div className="alert alert-success alert-dismissible mb-3">
+            {success}
+            <button type="button" className="btn-close float-end" onClick={() => setSuccess("")} />
+          </div>
+        )}
 
-        {/* Browse Tab */}
         {activeTab === "browse" && (
           <>
             <div className="card mb-4">
@@ -681,16 +802,30 @@ export default function Jobs() {
                       </div>
 
                       <div className="card-body">
-                        <p className="text-muted small mb-1">
-                          Posted by{" "}
-                          <button
-                            type="button"
-                            className="btn btn-link p-0 align-baseline"
-                            onClick={() => setProfileModal(listing.users)}
-                          >
-                            {listing.users?.first_name} {listing.users?.last_name}
-                          </button>
-                        </p>
+                        <div className="d-flex align-items-center gap-2 mb-2">
+                          <img
+                            src={
+                              listing.users?.icon_url
+                                ? getIcon(listing.users.icon_url).data.publicUrl
+                                : "https://placehold.co/40x40"
+                            }
+                            alt="Profile"
+                            className="rounded-circle"
+                            width="40"
+                            height="40"
+                            style={{ objectFit: "cover" }}
+                          />
+                          <p className="text-muted small mb-0">
+                            Posted by{" "}
+                            <button
+                              type="button"
+                              className="btn btn-link p-0 align-baseline"
+                              onClick={() => openProfileModal(listing)}
+                            >
+                              {listing.users?.first_name} {listing.users?.last_name}
+                            </button>
+                          </p>
+                        </div>
 
                         {listing.description && <p className="small mb-2">{listing.description}</p>}
 
@@ -736,6 +871,13 @@ export default function Jobs() {
                         >
                           Reviews
                         </button>
+
+                        <button
+                          className="btn btn-outline-danger btn-sm flex-fill"
+                          onClick={() => openListingReportModal(listing)}
+                        >
+                          Report Listing
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -745,7 +887,6 @@ export default function Jobs() {
           </>
         )}
 
-        {/* My Listings Tab (Students) */}
         {activeTab === "my" && role === "student" && (
           <div>
             {myListings.length === 0 ? (
@@ -762,15 +903,15 @@ export default function Jobs() {
                 {myListings.map((listing) => {
                   const bookingStatus = getListingBookingStatus(listing);
                   const badge = BOOKING_STATUS_BADGE[bookingStatus];
+
                   return (
                     <div className="col-md-6" key={listing.listing_id}>
                       <div className="card h-100 shadow-sm">
                         <div className="card-header d-flex justify-content-between align-items-center">
                           <h6 className="mb-0 fw-semibold">{listing.title}</h6>
-                          <span className={`badge ${badge.cls}`}>
-                            {badge.label}
-                          </span>
+                          <span className={`badge ${badge.cls}`}>{badge.label}</span>
                         </div>
+
                         <div className="card-body">
                           {listing.description && (
                             <p className="small text-muted mb-2">{listing.description}</p>
@@ -784,14 +925,20 @@ export default function Jobs() {
                           <p className="text-muted small mb-2">
                             Posted: {new Date(listing.created_at).toLocaleDateString()}
                           </p>
+
                           <div>
                             {listing.listingsskills?.map((ls) => (
-                              <span key={ls.skills?.skill_id} className="badge bg-secondary me-1" style={{ fontSize: "11px" }}>
+                              <span
+                                key={ls.skills?.skill_id}
+                                className="badge bg-secondary me-1"
+                                style={{ fontSize: "11px" }}
+                              >
                                 {ls.skills?.name}
                               </span>
                             ))}
                           </div>
                         </div>
+
                         <div className="card-footer d-flex gap-2">
                           {listing.status !== "inactive" && bookingStatus !== "booked" && (
                             <button
@@ -801,6 +948,7 @@ export default function Jobs() {
                               Edit
                             </button>
                           )}
+
                           {listing.status === "active" && bookingStatus !== "booked" && (
                             <button
                               className="btn btn-outline-danger btn-sm flex-fill"
@@ -809,6 +957,7 @@ export default function Jobs() {
                               Deactivate
                             </button>
                           )}
+
                           {listing.status === "inactive" && (
                             <button
                               className="btn btn-outline-success btn-sm flex-fill"
@@ -817,6 +966,7 @@ export default function Jobs() {
                               Reactivate
                             </button>
                           )}
+
                           {bookingStatus === "booked" && (
                             <span className="text-muted small d-flex align-items-center ms-1">
                               Currently booked — editing disabled
@@ -832,7 +982,6 @@ export default function Jobs() {
           </div>
         )}
 
-        {/* Active Listings Tab (Clients) */}
         {activeTab === "active" && role === "client" && (
           <div>
             {clientActiveListings.length === 0 ? (
@@ -851,9 +1000,7 @@ export default function Jobs() {
                           <p className="text-muted small mb-1">
                             Student: {listing?.users?.first_name} {listing?.users?.last_name}
                           </p>
-                          {listing?.description && (
-                            <p className="small mb-2">{listing.description}</p>
-                          )}
+                          {listing?.description && <p className="small mb-2">{listing.description}</p>}
                           <p className="text-muted small mb-1">
                             Location: {listing?.location_text || "Remote"}
                           </p>
@@ -861,7 +1008,7 @@ export default function Jobs() {
                             Agreed Price: ${booking.agreed_price_amount}
                           </p>
                           <p className="text-muted small mb-1">
-                            Start: {new Date(booking.start_at).toLocaleDateString()} &rarr;{" "}
+                            Start: {new Date(booking.start_at).toLocaleDateString()} →{" "}
                             {new Date(booking.end_at).toLocaleDateString()}
                           </p>
                           <div>
@@ -881,7 +1028,6 @@ export default function Jobs() {
           </div>
         )}
 
-        {/* Create Modal */}
         {showCreateModal && (
           <div
             className="modal fade show"
@@ -891,11 +1037,7 @@ export default function Jobs() {
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">Post a New Job</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowCreateModal(false)}
-                  />
+                  <button type="button" className="btn-close" onClick={() => setShowCreateModal(false)} />
                 </div>
 
                 <div className="modal-body">
@@ -907,10 +1049,7 @@ export default function Jobs() {
                         placeholder="e.g. Pet Sitter Available for Weekend Gigs"
                         value={newListing.title}
                         onChange={(e) =>
-                          setNewListing((prev) => ({
-                            ...prev,
-                            title: e.target.value,
-                          }))
+                          setNewListing((prev) => ({ ...prev, title: e.target.value }))
                         }
                       />
                     </div>
@@ -923,10 +1062,7 @@ export default function Jobs() {
                         placeholder="Describe what you can do..."
                         value={newListing.description}
                         onChange={(e) =>
-                          setNewListing((prev) => ({
-                            ...prev,
-                            description: e.target.value,
-                          }))
+                          setNewListing((prev) => ({ ...prev, description: e.target.value }))
                         }
                       />
                     </div>
@@ -938,10 +1074,7 @@ export default function Jobs() {
                         placeholder="e.g. Milwaukee, WI or Remote"
                         value={newListing.location_text}
                         onChange={(e) =>
-                          setNewListing((prev) => ({
-                            ...prev,
-                            location_text: e.target.value,
-                          }))
+                          setNewListing((prev) => ({ ...prev, location_text: e.target.value }))
                         }
                       />
                     </div>
@@ -952,10 +1085,7 @@ export default function Jobs() {
                         className="form-select"
                         value={newListing.pricing_type}
                         onChange={(e) =>
-                          setNewListing((prev) => ({
-                            ...prev,
-                            pricing_type: e.target.value,
-                          }))
+                          setNewListing((prev) => ({ ...prev, pricing_type: e.target.value }))
                         }
                       >
                         <option value="hourly">Hourly</option>
@@ -971,10 +1101,7 @@ export default function Jobs() {
                         placeholder="e.g. 25"
                         value={newListing.price_amount}
                         onChange={(e) =>
-                          setNewListing((prev) => ({
-                            ...prev,
-                            price_amount: e.target.value,
-                          }))
+                          setNewListing((prev) => ({ ...prev, price_amount: e.target.value }))
                         }
                       />
                     </div>
@@ -994,9 +1121,7 @@ export default function Jobs() {
                                 type="checkbox"
                                 className="btn-check"
                                 id={`skill-${s.skill_id}`}
-                                checked={newListing.selectedSkills.includes(
-                                  s.skill_id
-                                )}
+                                checked={newListing.selectedSkills.includes(s.skill_id)}
                                 onChange={() => toggleSkill(s.skill_id)}
                               />
                               <label
@@ -1018,10 +1143,7 @@ export default function Jobs() {
                 </div>
 
                 <div className="modal-footer">
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => setShowCreateModal(false)}
-                  >
+                  <button className="btn btn-outline-secondary" onClick={() => setShowCreateModal(false)}>
                     Cancel
                   </button>
                   <button className="btn btn-primary" onClick={handleCreateListing}>
@@ -1033,7 +1155,6 @@ export default function Jobs() {
           </div>
         )}
 
-        {/* Deactivate Confirmation Modal */}
         {deactivateModal && (
           <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
             <div className="modal-dialog modal-dialog-centered">
@@ -1043,18 +1164,18 @@ export default function Jobs() {
                   <button type="button" className="btn-close" onClick={() => setDeactivateModal(null)} />
                 </div>
                 <div className="modal-body">
-                  <p>Are you sure you want to deactivate <strong>"{deactivateModal.title}"</strong>?</p>
-                  <p className="text-muted small mb-0">It will be removed from the job board but not deleted.</p>
+                  <p>
+                    Are you sure you want to deactivate <strong>"{deactivateModal.title}"</strong>?
+                  </p>
+                  <p className="text-muted small mb-0">
+                    It will be removed from the job board but not deleted.
+                  </p>
                 </div>
                 <div className="modal-footer">
                   <button className="btn btn-outline-secondary" onClick={() => setDeactivateModal(null)}>
                     Cancel
                   </button>
-                  <button
-                    className="btn btn-danger"
-                    disabled={deactivating}
-                    onClick={handleDeactivateListing}
-                  >
+                  <button className="btn btn-danger" disabled={deactivating} onClick={handleDeactivateListing}>
                     {deactivating ? "Deactivating..." : "Deactivate"}
                   </button>
                 </div>
@@ -1063,21 +1184,13 @@ export default function Jobs() {
           </div>
         )}
 
-        {/* Edit Modal */}
         {editModal && (
-          <div
-            className="modal fade show"
-            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-          >
+          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
             <div className="modal-dialog modal-dialog-centered modal-lg">
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">Edit Listing</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setEditModal(null)}
-                  />
+                  <button type="button" className="btn-close" onClick={() => setEditModal(null)} />
                 </div>
                 <div className="modal-body">
                   <div className="row g-3">
@@ -1142,21 +1255,12 @@ export default function Jobs() {
         )}
 
         {messageModal && (
-          <div
-            className="modal fade show"
-            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-          >
+          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content">
                 <div className="modal-header">
-                  <h5 className="modal-title">
-                    Message {messageModal.users?.first_name}
-                  </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setMessageModal(null)}
-                  />
+                  <h5 className="modal-title">Message {messageModal.users?.first_name}</h5>
+                  <button type="button" className="btn-close" onClick={() => setMessageModal(null)} />
                 </div>
 
                 <div className="modal-body">
@@ -1173,10 +1277,7 @@ export default function Jobs() {
                 </div>
 
                 <div className="modal-footer">
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => setMessageModal(null)}
-                  >
+                  <button className="btn btn-outline-secondary" onClick={() => setMessageModal(null)}>
                     Cancel
                   </button>
                   <button
@@ -1193,19 +1294,12 @@ export default function Jobs() {
         )}
 
         {hireModal && (
-          <div
-            className="modal fade show"
-            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-          >
+          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">Hire — {hireModal.title}</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setHireModal(null)}
-                  />
+                  <button type="button" className="btn-close" onClick={() => setHireModal(null)} />
                 </div>
 
                 <div className="modal-body">
@@ -1216,7 +1310,7 @@ export default function Jobs() {
                       className="btn btn-link p-0 align-baseline"
                       onClick={() => setProfileModal(hireModal.users)}
                     >
-                      {hireModal.users?.first_name} {hireModal.users?.last_name}
+                      {hireModal.users?.first_name} {hireModal.users?.lastName}
                     </button>{" "}
                     · Listed at ${hireModal.price_amount} ({hireModal.pricing_type})
                   </p>
@@ -1229,12 +1323,7 @@ export default function Jobs() {
                         type="number"
                         min="0"
                         value={hireForm.price}
-                        onChange={(e) =>
-                          setHireForm((prev) => ({
-                            ...prev,
-                            price: e.target.value,
-                          }))
-                        }
+                        onChange={(e) => setHireForm((prev) => ({ ...prev, price: e.target.value }))}
                       />
                     </div>
 
@@ -1244,12 +1333,7 @@ export default function Jobs() {
                         className="form-control"
                         type="date"
                         value={hireForm.startDate}
-                        onChange={(e) =>
-                          setHireForm((prev) => ({
-                            ...prev,
-                            startDate: e.target.value,
-                          }))
-                        }
+                        onChange={(e) => setHireForm((prev) => ({ ...prev, startDate: e.target.value }))}
                       />
                     </div>
 
@@ -1260,32 +1344,19 @@ export default function Jobs() {
                         type="date"
                         value={hireForm.endDate}
                         min={hireForm.startDate || undefined}
-                        onChange={(e) =>
-                          setHireForm((prev) => ({
-                            ...prev,
-                            endDate: e.target.value,
-                          }))
-                        }
+                        onChange={(e) => setHireForm((prev) => ({ ...prev, endDate: e.target.value }))}
                       />
                     </div>
                   </div>
                 </div>
 
                 <div className="modal-footer">
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => setHireModal(null)}
-                  >
+                  <button className="btn btn-outline-secondary" onClick={() => setHireModal(null)}>
                     Cancel
                   </button>
                   <button
                     className="btn btn-primary"
-                    disabled={
-                      !hireForm.price ||
-                      !hireForm.startDate ||
-                      !hireForm.endDate ||
-                      hiring
-                    }
+                    disabled={!hireForm.price || !hireForm.startDate || !hireForm.endDate || hiring}
                     onClick={sendHireRequest}
                   >
                     {hiring ? "Sending..." : "Send Hire Request"}
@@ -1297,21 +1368,14 @@ export default function Jobs() {
         )}
 
         {profileModal && (
-          <div
-            className="modal fade show"
-            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-          >
+          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
             <div className="modal-dialog modal-dialog-centered modal-lg">
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">
                     {profileModal.first_name} {profileModal.last_name}
                   </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setProfileModal(null)}
-                  />
+                  <button type="button" className="btn-close" onClick={() => setProfileModal(null)} />
                 </div>
 
                 <div className="modal-body">
@@ -1332,9 +1396,7 @@ export default function Jobs() {
 
                   <div className="mb-3">
                     <h6 className="fw-bold">About</h6>
-                    <p className="text-muted mb-0">
-                      {profileModal?.bio || "No bio provided yet."}
-                    </p>
+                    <p className="text-muted mb-0">{profileModal?.bio || "No bio provided yet."}</p>
                   </div>
 
                   <div className="mb-3">
@@ -1343,25 +1405,11 @@ export default function Jobs() {
                       <i className="bi bi-envelope me-2 text-primary"></i>
                       {profileModal?.email}
                     </p>
-
                     <p className="mb-0">
                       <i className="bi bi-telephone me-2 text-primary"></i>
                       {profileModal?.phone || "Not added"}
                     </p>
                   </div>
-
-                  {profileModal?.skills && profileModal.skills.length > 0 && (
-                    <div>
-                      <h6 className="fw-bold">Skills</h6>
-                      <div className="d-flex flex-wrap gap-1">
-                        {profileModal.skills.map((s) => (
-                          <span key={s.skill_id} className="badge bg-primary">
-                            {s.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
                   <div className="mb-4">
                     <h6 className="fw-bold mb-2">Reviews</h6>
@@ -1375,9 +1423,7 @@ export default function Jobs() {
                     <div className="mt-2">
                       <button
                         className="btn btn-link p-0 text-decoration-none"
-                        onClick={() =>
-                          navigate(`/reviews?studentId=${profileModal.user_id}`)
-                        }
+                        onClick={() => navigate(`/reviews?studentId=${profileModal.user_id}`)}
                       >
                         View all reviews →
                       </button>
@@ -1424,10 +1470,7 @@ export default function Jobs() {
                     Report User
                   </button>
 
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => setProfileModal(null)}
-                  >
+                  <button className="btn btn-outline-secondary" onClick={() => setProfileModal(null)}>
                     Close
                   </button>
                 </div>
@@ -1437,10 +1480,7 @@ export default function Jobs() {
         )}
 
         {reportModal && (
-          <div
-            className="modal fade show"
-            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-          >
+          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content">
                 <div className="modal-header">
@@ -1467,10 +1507,7 @@ export default function Jobs() {
                       </>
                     ) : (
                       <>
-                        You are reporting:{" "}
-                        <strong>
-                          {reportModal.first_name} {reportModal.last_name}
-                        </strong>
+                        You are reporting: <strong>{reportModal.first_name} {reportModal.last_name}</strong>
                       </>
                     )}
                   </p>
@@ -1488,9 +1525,7 @@ export default function Jobs() {
                       <option value="misleading_listing">Misleading listing</option>
                       <option value="spam">Spam</option>
                       <option value="harassment">Harassment</option>
-                      <option value="inappropriate_content">
-                        Inappropriate content
-                      </option>
+                      <option value="inappropriate_content">Inappropriate content</option>
                       <option value="other">Other</option>
                     </select>
                   </div>

@@ -9,9 +9,11 @@ import {
   hardDeleteUserAccount,
   rejectDeletionRequest,
   getPendingListingReports,
+  getPendingUserReports,
   getUserByEmail,
   sendAdminMessageToUser,
   resolveListingReport,
+  resolveUserReport,
 } from "../../services/supabaseapi.jsx";
 
 export default function AdminDashboard() {
@@ -20,6 +22,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState([]);
   const [listings, setListings] = useState([]);
   const [listingReports, setListingReports] = useState([]);
+  const [userReports, setUserReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -45,6 +48,12 @@ export default function AdminDashboard() {
   const [listingReviewReason, setListingReviewReason] = useState("");
   const [listingReviewLoading, setListingReviewLoading] = useState(false);
 
+  const [userReportModal, setUserReportModal] = useState(null);
+  const [userReportAction, setUserReportAction] = useState("");
+  const [userReportNote, setUserReportNote] = useState("");
+  const [userReportLoading, setUserReportLoading] = useState(false);
+  const [userReportError, setUserReportError] = useState(null);
+
   const [activeSection, setActiveSection] = useState("users");
 
   useEffect(() => {
@@ -60,19 +69,23 @@ export default function AdminDashboard() {
         { data: userData, error: userErr },
         { data: listingData, error: listingErr },
         { data: listingReportData, error: listingReportErr },
+        { data: userReportData, error: userReportErr },
       ] = await Promise.all([
         getAllUsers(),
         getActiveListings(),
         getPendingListingReports(),
+        getPendingUserReports(),
       ]);
 
       if (userErr) throw userErr;
       if (listingErr) throw listingErr;
       if (listingReportErr) throw listingReportErr;
+      if (userReportErr) throw userReportErr;
 
       setUsers(userData || []);
       setListings(listingData || []);
       setListingReports(listingReportData || []);
+      setUserReports(userReportData || []);
     } catch (err) {
       console.error("Admin dashboard load error:", err);
       setError(err.message || "Failed to load dashboard data.");
@@ -241,10 +254,109 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleUserReportAction = async () => {
+    if (!userReportModal || !userReportAction) return;
+
+    setUserReportLoading(true);
+    setUserReportError(null);
+
+    try {
+      const adminEmail = (user?.email || "").toLowerCase();
+      const { data: adminDbUser, error: adminError } = await getUserByEmail(adminEmail);
+      if (adminError || !adminDbUser) throw new Error("Could not find admin account.");
+
+      const reportedUser = userReportModal.reportedUser;
+      const reports = userReportModal.reports;
+
+      // Resolve all pending reports for this user
+      for (const report of reports) {
+        const { error: resolveErr } = await resolveUserReport(
+          report.report_id,
+          userReportAction === "deactivate" ? "resolved" : "dismissed",
+          userReportNote.trim() || null
+        );
+        if (resolveErr) throw resolveErr;
+      }
+
+      if (userReportAction === "deactivate") {
+        // Deactivate the reported user's account
+        const { error: deactivateErr } = await deactivateUser(reportedUser.user_id);
+        if (deactivateErr) throw deactivateErr;
+
+        // Notify the reported user
+        await sendAdminMessageToUser(
+          adminDbUser.user_id,
+          reportedUser.user_id,
+          `Your account has been deactivated following a review of scam-related reports against your account.${userReportNote.trim() ? ` Admin note: ${userReportNote.trim()}` : ""}`
+        );
+
+        // Notify each reporter
+        for (const report of reports) {
+          await sendAdminMessageToUser(
+            adminDbUser.user_id,
+            report.reported_by_user_id,
+            `Your report against ${reportedUser.first_name} ${reportedUser.last_name} has been reviewed. The account has been deactivated.`
+          );
+        }
+
+        // Update users list to reflect deactivation
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.user_id === reportedUser.user_id
+              ? { ...u, is_active: false, account_status: "deleted" }
+              : u
+          )
+        );
+      } else {
+        // Dismissed — notify reporters
+        for (const report of reports) {
+          await sendAdminMessageToUser(
+            adminDbUser.user_id,
+            report.reported_by_user_id,
+            `Your report against ${reportedUser.first_name} ${reportedUser.last_name} was reviewed and dismissed.${userReportNote.trim() ? ` Admin note: ${userReportNote.trim()}` : ""}`
+          );
+        }
+      }
+
+      // Remove resolved reports from local state
+      setUserReports((prev) =>
+        prev.filter((r) => r.reported_user_id !== reportedUser.user_id)
+      );
+
+      setUserReportModal(null);
+      setUserReportAction("");
+      setUserReportNote("");
+    } catch (err) {
+      console.error("Failed to process user report action:", err);
+      setUserReportError(err.message || "Failed to complete action.");
+    } finally {
+      setUserReportLoading(false);
+    }
+  };
+
   const roleCounts = users.reduce((acc, u) => {
     acc[u.role] = (acc[u.role] || 0) + 1;
     return acc;
   }, {});
+
+  // Group pending user reports by the reported user for the review panel
+  const userReportsByUser = useMemo(() => {
+    const map = {};
+    userReports.forEach((report) => {
+      const uid = report.reported_user_id;
+      if (!map[uid]) {
+        map[uid] = { reportedUser: report.reported_user, reports: [] };
+      }
+      map[uid].reports.push(report);
+    });
+    return Object.values(map);
+  }, [userReports]);
+
+  // Count users who have submitted a deletion request and are still active
+  const pendingDeletionCount = useMemo(
+    () => users.filter((u) => u.delete_requested && u.is_active !== false).length,
+    [users]
+  );
 
   const toggleSort = (current, setCurrent, key) => {
     setCurrent((prev) => {
@@ -394,8 +506,10 @@ export default function AdminDashboard() {
             { label: "Students", value: roleCounts.student || 0, tone: "success" },
             { label: "Clients", value: roleCounts.client || 0, tone: "info" },
             { label: "Active Listings", value: listings.length, tone: "warning" },
+            { label: "User Reports", value: userReports.length, tone: "danger" },
+            { label: "Deletion Requests", value: pendingDeletionCount, tone: "secondary" },
           ].map(({ label, value, tone }) => (
-            <div className="col-6 col-lg-3" key={label}>
+            <div className="col-6 col-lg-2" key={label}>
               <div className="card border-0 shadow-sm rounded-4 h-100">
                 <div className="card-body py-3 px-4">
                   <div className="d-flex justify-content-between align-items-start">
@@ -417,21 +531,41 @@ export default function AdminDashboard() {
 
         <div className="d-flex flex-wrap gap-2 mb-4">
           <button
-            className={`btn ${
-              activeSection === "users" ? "btn-primary" : "btn-outline-primary"
-            }`}
+            className={`btn ${activeSection === "users" ? "btn-primary" : "btn-outline-primary"}`}
             onClick={() => setActiveSection("users")}
           >
             Users
           </button>
 
           <button
-            className={`btn ${
-              activeSection === "listings" ? "btn-primary" : "btn-outline-primary"
-            }`}
+            className={`btn ${activeSection === "listings" ? "btn-primary" : "btn-outline-primary"}`}
             onClick={() => setActiveSection("listings")}
           >
             Listings
+          </button>
+
+          <button
+            className={`btn position-relative ${activeSection === "userReports" ? "btn-danger" : "btn-outline-danger"}`}
+            onClick={() => setActiveSection("userReports")}
+          >
+            User Reports
+            {userReports.length > 0 && (
+              <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-dark">
+                {userReportsByUser.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            className={`btn position-relative ${activeSection === "deletionRequests" ? "btn-secondary" : "btn-outline-secondary"}`}
+            onClick={() => setActiveSection("deletionRequests")}
+          >
+            Deletion Requests
+            {pendingDeletionCount > 0 && (
+              <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-dark">
+                {pendingDeletionCount}
+              </span>
+            )}
           </button>
         </div>
 
@@ -757,8 +891,331 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* ── USER REPORTS SECTION ──────────────────────────────────── */}
+        {activeSection === "userReports" && (
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body p-0">
+              <div className="px-4 py-3 border-bottom">
+                <h5 className="mb-1">User Reports</h5>
+                <p className="text-muted small mb-0">
+                  Review scam-related and other reports filed against users. Deactivate accounts with sufficient evidence.
+                </p>
+              </div>
+
+              {loading ? (
+                <p className="text-muted px-4 py-4 mb-0">Loading…</p>
+              ) : userReportsByUser.length === 0 ? (
+                <p className="text-muted px-4 py-4 mb-0">No pending user reports.</p>
+              ) : (
+                <div className="p-4 d-flex flex-column gap-3">
+                  {userReportsByUser.map(({ reportedUser, reports }) => {
+                    if (!reportedUser) return null;
+                    const scamCount = reports.filter((r) =>
+                      (r.reason || "").toLowerCase().includes("scam")
+                    ).length;
+
+                    return (
+                      <div
+                        key={reportedUser.user_id}
+                        className="border rounded-4 p-4"
+                      >
+                        <div className="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+                          <div>
+                            <div className="fw-semibold fs-6">
+                              {reportedUser.first_name} {reportedUser.last_name}
+                            </div>
+                            <div className="text-muted small">{reportedUser.email}</div>
+                          </div>
+                          <div className="d-flex gap-2 align-items-center flex-wrap">
+                            <span className="badge rounded-pill text-bg-danger">
+                              {reports.length} report{reports.length !== 1 ? "s" : ""}
+                            </span>
+                            {scamCount > 0 && (
+                              <span className="badge rounded-pill text-bg-warning">
+                                {scamCount} scam-related
+                              </span>
+                            )}
+                            <button
+                              className="btn btn-outline-secondary btn-sm"
+                              onClick={() => {
+                                setUserReportModal({ reportedUser, reports });
+                                setUserReportAction("dismiss");
+                                setUserReportNote("");
+                                setUserReportError(null);
+                              }}
+                            >
+                              Dismiss All
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => {
+                                setUserReportModal({ reportedUser, reports });
+                                setUserReportAction("deactivate");
+                                setUserReportNote("");
+                                setUserReportError(null);
+                              }}
+                            >
+                              Deactivate Account
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="d-flex flex-column gap-2">
+                          {reports.map((report) => (
+                            <div
+                              key={report.report_id}
+                              className="bg-light rounded-3 p-3"
+                            >
+                              <div className="d-flex justify-content-between flex-wrap gap-2 mb-1">
+                                <span className="small fw-medium">
+                                  Reported by:{" "}
+                                  {report.reported_by?.first_name}{" "}
+                                  {report.reported_by?.last_name}
+                                  <span className="text-muted ms-1">
+                                    ({report.reported_by?.email})
+                                  </span>
+                                </span>
+                                <span className="badge rounded-pill text-bg-secondary small">
+                                  {report.reason}
+                                </span>
+                              </div>
+                              {report.details && (
+                                <div className="text-muted small">{report.details}</div>
+                              )}
+                              <div className="text-muted" style={{ fontSize: "0.75rem" }}>
+                                {new Date(report.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── DELETION REQUESTS SECTION ─────────────────────────────── */}
+        {activeSection === "deletionRequests" && (
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body p-0">
+              <div className="px-4 py-3 border-bottom">
+                <h5 className="mb-1">Account Deletion Requests</h5>
+                <p className="text-muted small mb-0">
+                  Students and clients who have voluntarily requested their account be deleted. Approve to permanently remove their data, or reject with a reason.
+                </p>
+              </div>
+
+              {loading ? (
+                <p className="text-muted px-4 py-4 mb-0">Loading…</p>
+              ) : users.filter((u) => u.delete_requested && u.is_active !== false).length === 0 ? (
+                <p className="text-muted px-4 py-4 mb-0">No pending deletion requests.</p>
+              ) : (
+                <div className="table-responsive">
+                  <table className="table table-hover align-middle mb-0">
+                    <thead className="table-light">
+                      <tr>
+                        <th className="small">#</th>
+                        <th className="small">User</th>
+                        <th className="small">Role</th>
+                        <th className="small">Reason</th>
+                        <th className="small">Status</th>
+                        <th className="small">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users
+                        .filter((u) => u.delete_requested && u.is_active !== false)
+                        .map((u) => (
+                          <tr key={u.user_id}>
+                            <td className="text-muted small">{u.user_id}</td>
+                            <td>
+                              <div className="fw-medium">
+                                {u.first_name} {u.last_name}
+                              </div>
+                              <div className="text-muted small">{u.email}</div>
+                            </td>
+                            <td>
+                              <span
+                                className={`badge rounded-pill ${
+                                  u.role === "student"
+                                    ? "text-bg-success"
+                                    : "text-bg-info"
+                                }`}
+                              >
+                                {u.role}
+                              </span>
+                            </td>
+                            <td className="small text-muted" style={{ maxWidth: 260 }}>
+                              {u.delete_request_reason || (
+                                <span className="text-muted fst-italic">No reason provided</span>
+                              )}
+                            </td>
+                            <td>
+                              <span className="badge rounded-pill text-bg-warning">
+                                Pending
+                              </span>
+                            </td>
+                            <td>
+                              <div className="d-flex gap-2">
+                                <button
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => {
+                                    setReviewTarget(u);
+                                    setReviewAction("approve_delete_request");
+                                    setReviewError(null);
+                                  }}
+                                >
+                                  Approve &amp; Delete
+                                </button>
+                                <button
+                                  className="btn btn-outline-secondary btn-sm"
+                                  onClick={() => {
+                                    setRejectReasonModal(u);
+                                    setRejectReasonText("");
+                                  }}
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* ── USER REPORT ACTION MODAL ───────────────────────────────── */}
+      {userReportModal && (
+        <div
+          className="modal d-block"
+          tabIndex="-1"
+          style={{ background: "rgba(0,0,0,0.45)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered modal-lg">
+            <div className="modal-content border-0 rounded-4">
+              <div className="modal-header border-0 pb-0">
+                <h5 className="modal-title">
+                  {userReportAction === "deactivate"
+                    ? "Deactivate Account"
+                    : "Dismiss Reports"}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setUserReportModal(null);
+                    setUserReportAction("");
+                    setUserReportNote("");
+                    setUserReportError(null);
+                  }}
+                />
+              </div>
+
+              <div className="modal-body pt-3">
+                {userReportError && (
+                  <div className="alert alert-danger py-2">{userReportError}</div>
+                )}
+
+                <div className="mb-3">
+                  <strong>User:</strong>{" "}
+                  {userReportModal.reportedUser?.first_name}{" "}
+                  {userReportModal.reportedUser?.last_name}{" "}
+                  <span className="text-muted small">
+                    ({userReportModal.reportedUser?.email})
+                  </span>
+                </div>
+
+                <div className="mb-3">
+                  <strong>Reports ({userReportModal.reports.length}):</strong>
+                  <div className="mt-2 d-flex flex-column gap-2">
+                    {userReportModal.reports.map((report) => (
+                      <div
+                        key={report.report_id}
+                        className="bg-light rounded-3 p-3"
+                      >
+                        <div className="d-flex justify-content-between mb-1 flex-wrap gap-1">
+                          <span className="small fw-medium">
+                            By: {report.reported_by?.first_name}{" "}
+                            {report.reported_by?.last_name}
+                          </span>
+                          <span className="badge text-bg-secondary small">
+                            {report.reason}
+                          </span>
+                        </div>
+                        {report.details && (
+                          <div className="text-muted small">{report.details}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {userReportAction === "deactivate" && (
+                  <div className="alert alert-warning py-2 small mb-3">
+                    This will deactivate the account and notify the user and all reporters via message.
+                  </div>
+                )}
+
+                <div>
+                  <label className="form-label small fw-medium">
+                    Admin note <span className="text-muted">(optional)</span>
+                  </label>
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    placeholder={
+                      userReportAction === "deactivate"
+                        ? "Reason for deactivation (sent to user and reporters)…"
+                        : "Reason for dismissal (sent to reporters)…"
+                    }
+                    value={userReportNote}
+                    onChange={(e) => setUserReportNote(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer border-0 pt-0">
+                <button
+                  className="btn btn-light"
+                  onClick={() => {
+                    setUserReportModal(null);
+                    setUserReportAction("");
+                    setUserReportNote("");
+                    setUserReportError(null);
+                  }}
+                  disabled={userReportLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  className={`btn ${
+                    userReportAction === "deactivate"
+                      ? "btn-danger"
+                      : "btn-outline-secondary"
+                  }`}
+                  onClick={handleUserReportAction}
+                  disabled={userReportLoading}
+                >
+                  {userReportLoading
+                    ? "Processing…"
+                    : userReportAction === "deactivate"
+                    ? "Deactivate Account"
+                    : "Dismiss Reports"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {reviewTarget && (
         <div
           className="modal d-block"
