@@ -137,7 +137,7 @@ export default function Reviews() {
     <>
       <Navbar />
       <Container className="py-4">
-        <h2 className="mb-3">Ratings & Reviews</h2>
+        <h2 className="mb-3" style={{ color: "#8f1169" }}>Ratings & Reviews</h2>
 
         {loading ? (
           <div>Loading...</div>
@@ -221,9 +221,11 @@ export default function Reviews() {
             )}
 
             {dbUser?.role === "student" && (
-              <Card className="mb-3 shadow-sm">
-                <Card.Body className="text-muted">
-                  Reviews for: {student.first_name} {student.last_name}
+              <Card className="mb-3">
+                <Card.Body
+                  style={{ fontWeight: "bold", color: "#cc40a2" }}
+                >
+                  What previous costumers have to say about {student.first_name} {student.last_name}
                 </Card.Body>
               </Card>
             )}

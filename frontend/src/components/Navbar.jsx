@@ -49,14 +49,14 @@ export default function Navbar() {
   return (
     <BsNavbar bg="light" expand="lg" className="border-bottom shadow-sm py-2">
       <Container fluid className="px-4">
-        <BsNavbar.Brand as={Link} to={getHomePath()} className="fw-bold fs-4">
+        <BsNavbar.Brand as={Link} to={getHomePath()} className="fw-bold fs-1">
           TaskFinder
         </BsNavbar.Brand>
 
         <BsNavbar.Toggle aria-controls="main-navbar" />
 
         <BsNavbar.Collapse id="main-navbar">
-          <Nav className="ms-auto align-items-lg-center gap-lg-2">
+          <Nav className="ms-auto align-items-lg-center gap-lg-2 " style={{ textAlign: "center" }}>
             <Nav.Link
               as={Link}
               to={getHomePath()}

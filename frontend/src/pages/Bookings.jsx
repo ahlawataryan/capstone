@@ -1186,7 +1186,7 @@ export default function Bookings() {
           <div
             className="modal d-block"
             tabIndex="-1"
-            style={{ background: "rgba(0,0,0,0.5)" }}
+            style={{ background: "$pink-500" }}
           >
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content border-0 rounded-4">

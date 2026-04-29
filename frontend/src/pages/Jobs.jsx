@@ -2,6 +2,9 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import Navbar from "../components/Navbar";
+import Button from 'react-bootstrap/Button';
+import ButtonGroup from 'react-bootstrap/ButtonGroup';
+import ButtonToolbar from 'react-bootstrap/ButtonToolbar';
 import {
   getUserByEmail,
   getUserById,
@@ -800,11 +803,22 @@ export default function Jobs() {
                   <div className="col-md-6" key={listing.listing_id}>
                     <div className="card h-100 shadow-sm">
                       <div className="card-header">
-                        <h5 className="card-title mb-0">{listing.title}</h5>
+                        <h5 className="card-title fs-3 mb-0" style={{ color: "#0d6efd" }}>{listing.title}</h5>
                       </div>
 
                       <div className="card-body">
                         <div className="d-flex align-items-center gap-2 mb-2">
+                          <p className="fs-5 mb-0">
+                            Posted by{" "}
+                            <button
+                              type="button"
+                              className="btn p-0 fs-5 align-baseline"
+                              onClick={() => openProfileModal(listing)}
+                              style={{ fontWeight: "bold" }}
+                            >
+                              {listing.users?.first_name} {listing.users?.last_name}
+                            </button>
+                          </p>
                           <img 
                             type="button" 
                             onClick={() => openProfileModal(listing)}
@@ -814,34 +828,26 @@ export default function Jobs() {
                                 : "https://placehold.co/40x40"
                             }
                             alt="Profile"
-                            className="rounded-circle"
-                            width="60"
-                            height="60"
-                            style={{ objectFit: "cover" }}
+                            className="rounded-circle  ms-auto"
+                            width="80"
+                            height="80"
+                            style={{ objectFit: "cover" 
+                            }}
                           />
-                          <p className="text-muted small mb-0">
-                            Posted by{" "}
-                            <button
-                              type="button"
-                              className="btn btn-link p-0 align-baseline"
-                              onClick={() => openProfileModal(listing)}
-                            >
-                              {listing.users?.first_name} {listing.users?.last_name}
-                            </button>
-                          </p>
+                          
                         </div>
 
-                        {listing.description && <p className="small mb-2">{listing.description}</p>}
+                        {listing.description && <p className="mb-2 fw-bold" style={{ color:"#0d6dfd91" }}>{listing.description}</p>}
 
-                        <p className="text-muted mb-1">
+                        <p className="mb-1">
                           Location: {listing.location_text || "Remote"}
                         </p>
 
-                        <p className="text-muted mb-1">
+                        <p className="mb-1">
                           Rate: ${listing.price_amount} ({listing.pricing_type})
                         </p>
 
-                        <p className="text-muted mb-2">
+                        <p className="mb-2">
                           Date: {new Date(listing.created_at).toLocaleDateString()}
                         </p>
 
@@ -855,33 +861,40 @@ export default function Jobs() {
                       </div>
 
                       <div className="card-footer d-flex gap-2 flex-wrap">
-                        <button
-                          className="btn btn-primary btn-sm flex-fill"
-                          onClick={() => openHireModal(listing)}
-                        >
-                          Hire
-                        </button>
+                        
 
-                        <button
-                          className="btn btn-outline-secondary btn-sm flex-fill"
-                          onClick={() => openMessageModal(listing)}
-                        >
-                          Message
-                        </button>
+                        <ButtonToolbar className="w-100" aria-label="Toolbar with button groups">
+                          <ButtonGroup className="w-50 me-2" aria-label="First group">
+                            <button
+                              className="btn btn-primary flex-fill"
+                              onClick={() => openHireModal(listing)}
+                            >
+                              Hire
+                            </button>
+                          </ButtonGroup>
 
-                        <button
-                          className="btn btn-outline-primary btn-sm flex-fill"
-                          onClick={() => navigate(`/reviews?studentId=${listing.student_id}`)}
-                        >
-                          Reviews
-                        </button>
+                          <ButtonGroup className="ms-auto" aria-label="Second group">
+                            <button
+                              className="btn btn-outline-secondary btn-sm"
+                              onClick={() => openMessageModal(listing)}
+                            >
+                              Message
+                            </button>
+                            <button
+                              className="btn btn-outline-primary btn-sm"
+                              onClick={() => navigate(`/reviews?studentId=${listing.student_id}`)}
+                            >
+                              Reviews
+                            </button>
+                            <button
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => openListingReportModal(listing)}
+                            >
+                              Report Listing
+                            </button>
+                          </ButtonGroup>
+                        </ButtonToolbar>
 
-                        <button
-                          className="btn btn-outline-danger btn-sm flex-fill"
-                          onClick={() => openListingReportModal(listing)}
-                        >
-                          Report Listing
-                        </button>
                       </div>
                     </div>
                   </div>
