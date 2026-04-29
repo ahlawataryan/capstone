@@ -8,6 +8,8 @@ const TYPE_LABELS = {
   booking_accepted: "Booking accepted",
   booking_declined:"Booking declined",
   booking_cancelled:"Booking cancelled",
+  completion_request: "Completion request",
+  booking_completed: "Job completed",
   review:          "New review",
   payment:         "Payment update",
 };
@@ -77,8 +79,9 @@ export default function NotificationBell({ userId }) {
 
   const handleNotificationClick = (n) => {
     const [type, id] = (n.type || "").split(":");
-    markNotificationCleared(n.notification_id);
-    
+    if (type !== "completion_request") {
+      markNotificationCleared(n.notification_id);
+    }    
     if (type === "message" && id) {
       navigate(`/messages?conversationId=${id}`, { state: { clearNotification: n.notification_id } });
       return;
@@ -106,6 +109,16 @@ export default function NotificationBell({ userId }) {
     
     if (type === "booking_request" && id) {
       navigate(`/bookings?bookingId=${id}&tab=received`);
+      return;
+    }
+
+    if (type === "completion_request" && id) {
+      navigate(`/bookings?bookingId=${id}`);
+      return;
+    }
+
+    if (type === "booking_completed" && id) {
+      navigate(`/bookings?bookingId=${id}`, { state: { clearNotification: n.notification_id } });
       return;
     }
     

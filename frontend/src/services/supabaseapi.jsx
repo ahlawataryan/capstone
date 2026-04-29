@@ -820,6 +820,22 @@ export async function getJobsBySkillsTime(skills, numReturn){
 // ─────────────────────────────────────────────────
 
 export async function createConversation({ initiatorUserId, recipientUserId }) {
+// Look for an existing conversation in either direction.
+const { data: existing, error: lookupError } = await supabase
+  .from("conversations")
+  .select("conversation_id, created_at, initiator_user_id, recipient_user_id")
+  .or(
+    `and(initiator_user_id.eq.${initiatorUserId},recipient_user_id.eq.${recipientUserId}),` +
+    `and(initiator_user_id.eq.${recipientUserId},recipient_user_id.eq.${initiatorUserId})`
+  )
+  .order("created_at", { ascending: true })
+  .limit(1)
+  //single() would treat there not being a previous convo as an error.
+  .maybeSingle();
+
+  if (lookupError) return { data: null, error: lookupError };
+  if (existing)    return { data: existing, error: null };
+  // None found, create a new one.
   return await supabase
     .from("conversations")
     .insert({
