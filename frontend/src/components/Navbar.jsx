@@ -7,7 +7,7 @@ import {
   Nav,
   Navbar as BsNavbar,
 } from "react-bootstrap";
-import { getUserByEmail } from "../services/supabaseapi";
+import { getUserByEmail, getIcon } from "../services/supabaseapi";
 import NotificationBell from "./NotificationBell";
 
 export default function Navbar() {
@@ -46,6 +46,10 @@ export default function Navbar() {
     return "/";
   };
 
+  const iconUrl = dbUser?.icon_url
+  ? getIcon(dbUser.icon_url).data.publicUrl
+  : "https://placehold.co/40x40";
+
   return (
     <BsNavbar bg="light" expand="lg" className="border-bottom shadow-sm py-2">
       <Container fluid className="px-4">
@@ -53,10 +57,12 @@ export default function Navbar() {
           TaskFinder
         </BsNavbar.Brand>
 
+        <NotificationBell userId={dbUser?.user_id} />
+
         <BsNavbar.Toggle aria-controls="main-navbar" />
 
         <BsNavbar.Collapse id="main-navbar">
-          <Nav className="ms-auto align-items-lg-center gap-lg-2 " style={{ textAlign: "center" }}>
+          <Nav className="ms-auto align-items-lg-center gap-lg-2 me-3">
             <Nav.Link
               as={Link}
               to={getHomePath()}
@@ -99,17 +105,19 @@ export default function Navbar() {
           </Nav>
 
           <div className="d-flex align-items-center gap-2 ms-lg-3 mt-3 mt-lg-0">
-            <span className="small text-muted d-none d-md-inline">
-              {dbUser
-                ? `${dbUser.first_name || ""} ${dbUser.last_name || ""}`.trim() || dbUser.email
-                : user?.email || "Client"}
-            </span>
-
-            <NotificationBell userId={dbUser?.user_id} />
-
-            <Button as={Link} to="/profile" variant="primary" size="sm">
-              Profile
-            </Button>
+            <Link to="/profile" style={{ textDecoration: "none" }}>
+              <img
+                src={iconUrl}
+                alt="Profile"
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  cursor: "pointer",
+                }}
+              />
+            </Link>
 
             <Button variant="outline-secondary" size="sm" onClick={handleLogout}>
               Logout

@@ -285,7 +285,9 @@ export default function Profile() {
 
       <div className="container py-4">
         <h2 className="mb-4">
-          My Profile ({profile?.role || "Loading..."})
+          {profile
+                ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email
+                : user?.email || "Client"} ({profile?.role || "Loading..."})
         </h2>
 
         <div className="row g-4">
