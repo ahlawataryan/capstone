@@ -815,6 +815,18 @@ export default function Bookings() {
                           <button className="btn btn-outline-danger btn-sm flex-fill" disabled={!!actionLoading} onClick={() => handleAction(req.request_id, "declined")}>
                             {actionLoading === req.request_id + "declined" ? "Declining..." : "Decline"}
                           </button>
+
+                          {req.users?.user_id && (
+                              <button
+                                className="btn btn-outline-warning btn-sm"
+                                title="Report this client"
+                                onClick={() =>
+                                  openReportModal({ type: "user", target: req.users })
+                                }
+                              >
+                                ⚑ Report
+                              </button>
+                            )}
                         </div>
                       )}
                     </div>
@@ -888,6 +900,47 @@ export default function Bookings() {
                             <button className="btn btn-outline-danger btn-sm flex-fill" onClick={() => openCancelModal(booking)}>
                               Cancel Booking
                             </button>
+
+                            {showReviewButton && (
+                              <button
+                                className="btn btn-outline-primary btn-sm flex-fill"
+                                onClick={() => handleReviewClick(booking)}
+                              >
+                                {reviewInfo?.hasReview ? "Edit Review" : "Leave Review"}
+                              </button>
+                            )}
+
+                            {role === "client" && booking.listings?.users && (
+                              <button
+                                className="btn btn-outline-warning btn-sm"
+                                title="Report this student"
+                                onClick={() =>
+                                  openReportModal({
+                                    type: "user",
+                                    target: booking.listings.users,
+                                  })
+                                }
+                              >
+                                ⚑ Report
+                              </button>
+                            )}
+
+                            {role === "student" &&
+                              booking.customer_id !== dbUser?.user_id &&
+                              booking.users && (
+                                <button
+                                  className="btn btn-outline-warning btn-sm"
+                                  title="Report this client"
+                                  onClick={() =>
+                                    openReportModal({
+                                      type: "user",
+                                      target: booking.users,
+                                    })
+                                  }
+                                >
+                                  ⚑ Report
+                                </button>
+                              )}
                           </div>
                         </div>
                       </div>
@@ -897,20 +950,7 @@ export default function Bookings() {
             )}
           </div>
         )}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            
 {/* History (completed bookings, cancelled bookings, cancelled requests) */}
         {activeTab === "history" && (
           <div>
@@ -1298,6 +1338,7 @@ export default function Bookings() {
           </div>
         )}
 
+        {/* Report Booking Modal */}
         {reportModal && (
           <div
             className="modal d-block"
