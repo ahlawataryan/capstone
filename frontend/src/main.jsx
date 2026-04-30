@@ -8,6 +8,7 @@ Defines components used in the project
 Mainly used for auth0.
 Technically this is the main file by running the App component,
 but App.jsx contains all the base information
+Not entirely sure how this works since I can't use the env variables, but this is all publicly accessible anyways
 */
 createRoot(document.getElementById("root")).render(
   <Auth0Provider

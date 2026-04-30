@@ -1,11 +1,10 @@
-require('dotenv').config({ path: '/server/.env' });
 const express = require("express");
 const cors = require("cors");
 const Database = require("better-sqlite3");
 const jwt = require("jsonwebtoken");
 const jwksRsa = require("jwks-rsa");
 const { ManagementClient } = require("auth0");
-process.loadEnvFile();
+process.loadEnvFile("../.env");
 
 /*
 In the directory capstone/server, run node index.js. Then run npm run dev in frontend
