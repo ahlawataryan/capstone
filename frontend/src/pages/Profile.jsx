@@ -303,7 +303,8 @@ export default function Profile() {
 
                 <div className="mb-3 text-start">
                   <label className="form-label fw-semibold">
-                    Upload Profile Photo
+                    Upload Profile Photo{" "}
+                    <span title="Preferrably one of you directly." style={{ cursor: "help" }}>?</span>
                   </label>
                   <input
                     type="file"
@@ -319,7 +320,10 @@ export default function Profile() {
             {profile?.role === "student" && (
               <div className="card shadow-sm">
                 <div className="card-body">
-                  <h5 className="card-title mb-3">Skills</h5>
+                  <h5 className="card-title mb-3">
+                    Skills{" "}
+                    <span title="Select all skills that apply to you. Be precise" style={{ cursor: "help" }}>?</span>
+                  </h5>
 
                   <div className="d-flex flex-wrap gap-2">
                     {allSkills.map((skill) => {
@@ -420,7 +424,10 @@ export default function Profile() {
                 <form onSubmit={handleSave}>
                   <div className="row g-20">
                     <div className="col-md-6">
-                      <label className="form-label">Full Name</label>
+                      <label className="form-label">
+                        Full Name{" "}
+                        <span title="Use your real name, like on your drivers license." style={{ cursor: "help" }}>?</span>
+                      </label>
                       <input
                         type="text"
                         name="name"
@@ -431,7 +438,10 @@ export default function Profile() {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label">Email</label>
+                      <label className="form-label">
+                        Email{" "}
+                        <span title="Your email is tied to your Auth0 login and cannot be changed here. Contact an admin if you need to update it." style={{ cursor: "help" }}>*</span>
+                      </label>
                       <input
                         type="email"
                         name="email"
@@ -442,7 +452,9 @@ export default function Profile() {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label">Phone Number</label>
+                      <label className="form-label">
+                        Phone Number
+                      </label>
                       <input
                         type="text"
                         name="phone"
@@ -456,7 +468,10 @@ export default function Profile() {
                     </div>
 
                     <div className="col-12">
-                      <label className="form-label">Bio</label>
+                      <label className="form-label">
+                        Bio{" "}
+                        <span title="Be detailed about who you are" style={{ cursor: "help" }}>?</span>
+                      </label>
                       <textarea
                         name="bio"
                         className="form-control"
