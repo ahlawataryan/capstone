@@ -80,7 +80,8 @@ export default function Login() {
 
               <div className="modal-body">
                 <p className="text-muted">
-                  Are you signing up as a student offering services or a client/customer hiring services?
+                  Are you signing up as a student offering services or a client/customer hiring services?{" "}
+                  <span title="Your account type cannot be changed after sign-up." style={{ cursor: "help" }}>?</span>
                 </p>
 
                 <div className="form-check mb-2">
@@ -93,7 +94,8 @@ export default function Login() {
                     onChange={() => setRole("student")}
                   />
                   <label className="form-check-label" htmlFor="student">
-                    Student (offer services)
+                    Student (offer services){" "}
+                    <span title="Choose this if you are a UW-Milwaukee student who wants to post job listings and get paid for your skills." style={{ cursor: "help" }}>?</span>
                   </label>
                 </div>
 
@@ -107,7 +109,8 @@ export default function Login() {
                     onChange={() => setRole("client")}
                   />
                   <label className="form-check-label" htmlFor="client">
-                    Client / Customer (hire services)
+                    Client / Customer (hire services){" "}
+                    <span title="Choose this if you are a resident of the greater Milwaukee area looking for jobs done." style={{ cursor: "help" }}>?</span>
                   </label>
                 </div>
               </div>
