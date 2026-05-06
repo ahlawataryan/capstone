@@ -1183,6 +1183,7 @@ export async function getNotificationsForUser(userId) {
     .from("notifications")
     .select("*")
     .eq("user_id", userId)
+    .not("status", "eq", "cleared")
     .order("created_at", { ascending: false });
 }
 

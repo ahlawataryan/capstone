@@ -81,7 +81,10 @@ export default function NotificationBell({ userId }) {
     const [type, id] = (n.type || "").split(":");
     if (type !== "completion_request") {
       markNotificationCleared(n.notification_id);
-    } 
+      setNotifications((prev) =>
+        prev.filter((notif) => notif.notification_id !== n.notification_id)
+      );
+    }
     
     if (type === "message" && id) {
       navigate(`/messages?conversationId=${id}`, { state: { clearNotification: n.notification_id } });
