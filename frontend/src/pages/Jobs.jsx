@@ -16,10 +16,8 @@ import {
   createListing,
   updateListing,
   deactivateListing,
-  reactivateListing,
   addSkillToListing,
   createBookingRequest,
-  getBookingRequestsForStudent,
   createConversation,
   sendMessage,
   createNotification,
@@ -100,9 +98,6 @@ export default function Jobs() {
   const [deactivateModal, setDeactivateModal] = useState(null);
   const [deactivating, setDeactivating] = useState(false);
 
-  const [reactivateModal, setReactivateModal] = useState(null);
-  const [reactivating, setReactivating] = useState(false);
-
   const [skillFilter, setSkillFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [maxPay, setMaxPay] = useState("");
@@ -142,6 +137,7 @@ export default function Jobs() {
     if (user?.email) {
       fetchData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const fetchData = async () => {
@@ -300,8 +296,8 @@ export default function Jobs() {
       const { data: createdRequest, error } = await createBookingRequest({
         customer_id: dbUser.user_id,
         listing_id: hireModal.listing_id,
-        requested_start_at: new Date(hireForm.startDate).toISOString(),
-        requested_end_at: new Date(hireForm.endDate).toISOString(),
+        requested_start_at: new Date(`${hireForm.startDate}T00:00:00`).toISOString(),
+        requested_end_at: new Date(`${hireForm.endDate}T23:59:59`).toISOString(),
         note: JSON.stringify({ agreed_price: Number(hireForm.price) }),
       });
 
@@ -402,36 +398,11 @@ export default function Jobs() {
     }
   };
 
-  const handleReactivateListing = async () => {
-    setError("");
-    setSuccess("");
-
-    if (!reactivateModal) return;
-    setReactivating(true);
-
-    try {
-      const { error } = await reactivateListing(reactivateModal.listing_id);
-      if (error) throw error;
-
-      setSuccess(`"${reactivateModal.title}" has been reactivated and added back to the job board.`);
-      setReactivateModal(null);
-
-      await fetchMyListings(dbUser);
-      await fetchListings();
-    } catch (err) {
-      console.error("Failed to reactivate listing:", err);
-      setError("Failed to reactivate listing.");
-    } finally {
-      setReactivating(false);
-    }
-  };
-
   const handleCreateListing = async () => {
     setError("");
     setSuccess("");
 
     if (!newListing.title || !newListing.price_amount) {
-      alert("Please fill in title and price.");
       setError("Please fill in title and price.");
       return;
     }
@@ -1359,9 +1330,14 @@ export default function Jobs() {
                     <button
                       type="button"
                       className="btn btn-link p-0 align-baseline"
-                      onClick={() => setProfileModal(hireModal.users)}
+                      onClick={() => {
+                        const studentId = hireModal.users?.user_id;
+                        if (!studentId) return;
+                        setHireModal(null);
+                        openProfileModal({ student_id: studentId });
+                      }}
                     >
-                      {hireModal.users?.first_name} {hireModal.users?.lastName}
+                      {hireModal.users?.first_name} {hireModal.users?.last_name}
                     </button>{" "}
                     · Listed at ${hireModal.price_amount} ({hireModal.pricing_type})
                   </p>

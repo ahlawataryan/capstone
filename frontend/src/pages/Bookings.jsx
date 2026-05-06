@@ -16,6 +16,8 @@ import {
   sendMessage,
   createNotification,
   deactivateListing,
+  getNotificationsForUser,
+  markNotificationCleared,
   createListingReport,
   createUserReport,
   getReviewByReviewerAndStudent,
@@ -77,6 +79,13 @@ export default function Bookings() {
   const [acceptModal, setAcceptModal] = useState(null);
   const [keepListingActive, setKeepListingActive] = useState(true);
 
+  const [completionNotifications, setCompletionNotifications] = useState([]);
+  const [completeModal, setCompleteModal] = useState(null);
+  const [completing, setCompleting] = useState(false);
+
+  const [clearedItems, setClearedItems] = useState(() => new Set());
+  const [sentCompletionRequests, setSentCompletionRequests] = useState(() => new Set());
+
   const [reportModal, setReportModal] = useState(null);
   const [reportReason, setReportReason] = useState("");
   const [reportDetails, setReportDetails] = useState("");
@@ -92,6 +101,23 @@ export default function Bookings() {
     if (user?.email) fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+  useEffect(() => {
+    if (!dbUser?.user_id) return;
+    try {
+      const raw = localStorage.getItem(`clearedPastItems_${dbUser.user_id}`);
+      if (raw) setClearedItems(new Set(JSON.parse(raw)));
+      else setClearedItems(new Set());
+    } catch {
+      setClearedItems(new Set());
+    }
+    try {
+      const raw = localStorage.getItem(`sentCompletionRequests_${dbUser.user_id}`);
+      if (raw) setSentCompletionRequests(new Set(JSON.parse(raw)));
+      else setSentCompletionRequests(new Set());
+    } catch {
+      setSentCompletionRequests(new Set());
+    }
+  }, [dbUser?.user_id]);
 
   useEffect(() => {
     if (!loading && dbUser && role) {
@@ -99,43 +125,51 @@ export default function Bookings() {
       const tab = searchParams.get("tab");
 
       if (bookingId) {
-        const targetId = parseInt(bookingId, 10);
+        // Find which tab contains this booking/request and navigate to it.
+        const id = parseInt(bookingId);
+        const tabForRequest = (req) =>
+          (req.status === 'cancelled' || req.status === 'declined') ? 'history' : null;
+        const tabForBooking = (booking) =>
+          (booking.status === 'completed' || booking.status === 'cancelled') ? 'history' : 'active';
 
-        if (role === "student") {
-          const sentReq = sentRequests.find((r) => r.request_id === targetId);
+        if (role === 'student') {
+          // Check sent requests
+          const sentReq = sentRequests.find(r => r.request_id === id);
           if (sentReq) {
-            setActiveTab("sent");
+            setActiveTab(tabForRequest(sentReq) ?? 'sent');
             return;
           }
 
-          const receivedReq = receivedRequests.find((r) => r.request_id === targetId);
+          // Check received requests
+          const receivedReq = receivedRequests.find(r => r.request_id === id);
           if (receivedReq) {
-            setActiveTab("received");
+            setActiveTab(tabForRequest(receivedReq) ?? 'received');
             return;
           }
 
-          const booking = studentBookings.find((b) => b.bookings_id === targetId);
+          // Check active bookings
+          const booking = studentBookings.find(b => b.bookings_id === id);
           if (booking) {
-            setActiveTab("active");
-            return;
+            setActiveTab(tabForBooking(booking));            return;
           }
         } else {
-          const sentReq = clientSentRequests.find((r) => r.request_id === targetId);
+          // Client role - check sent requests
+          const sentReq = clientSentRequests.find(r => r.request_id === id);
           if (sentReq) {
-            setActiveTab("sent");
-            return;
+            setActiveTab(tabForRequest(sentReq) ?? 'sent');            return;
           }
 
-          const booking = clientBookings.find((b) => b.bookings_id === targetId);
+          // Check active bookings
+          const booking = clientBookings.find(b => b.bookings_id === id);
           if (booking) {
-            setActiveTab("active");
-            return;
+            setActiveTab(tabForBooking(booking));            return;
           }
         }
       } else if (tab) {
-        if (role === "student" && ["sent", "received", "active"].includes(tab)) {
+        // Navigate to specific tab if provided
+        if (role === 'student' && ['sent', 'received', 'active', 'history'].includes(tab)) {
           setActiveTab(tab);
-        } else if (role === "client" && ["sent", "active"].includes(tab)) {
+        } else if (role === 'client' && ['sent', 'active', 'history'].includes(tab)) {
           setActiveTab(tab);
         }
       }
@@ -268,30 +302,39 @@ export default function Bookings() {
   };
 
   const fetchStudentData = async (userId) => {
-    const [sentRes, receivedRes, providerBookingsRes, customerBookingsRes] =
-      await Promise.all([
-        getBookingRequestsByClient(userId),
-        getBookingRequestsForStudent(userId),
-        getBookingsForStudent(userId),
-        getBookingsByClient(userId),
-      ]);
+    const [sentRes, receivedRes, providerBookingsRes, customerBookingsRes, notificationsRes] = await Promise.all([
+      getBookingRequestsByClient(userId),
+      getBookingRequestsForStudent(userId),
+      getBookingsForStudent(userId),
+      getBookingsByClient(userId),
+      getNotificationsForUser(userId),
+    ]);
 
     setSentRequests(sentRes.data || []);
     setReceivedRequests(receivedRes.data || []);
-    setStudentBookings([
-      ...(providerBookingsRes.data || []),
-      ...(customerBookingsRes.data || []),
-    ]);
+    // Merge bookings where student is the provider (their listing was booked)
+    // with bookings where student is the customer (they hired someone else)
+    const mergedById = new Map();
+    for (const b of (providerBookingsRes.data || [])) mergedById.set(b.bookings_id, b);
+    for (const b of (customerBookingsRes.data || [])) mergedById.set(b.bookings_id, b);
+    setStudentBookings([...mergedById.values()]);
+    setCompletionNotifications(
+      (notificationsRes.data || []).filter(n => (n.type || "").startsWith("completion_request:"))
+    );
   };
 
   const fetchClientData = async (userId) => {
-    const [sentRes, bookingsRes] = await Promise.all([
+    const [sentRes, bookingsRes, notificationRes] = await Promise.all([
       getBookingRequestsByClient(userId),
       getBookingsByClient(userId),
+      getNotificationsForUser(userId),
     ]);
 
     setClientSentRequests(sentRes.data || []);
     setClientBookings(bookingsRes.data || []);
+    setCompletionNotifications(
+      (notificationRes.data || []).filter(n => (n.type || "").startsWith("completion_request:"))
+    );
   };
 
   const openAcceptModal = (req) => {
@@ -404,6 +447,128 @@ export default function Bookings() {
     await handleAction(req.request_id, "accepted", keepListingActive);
   };
 
+  const getOtherPartyId = (booking) => {
+    if (!booking || !dbUser) return null;
+    if (booking.customer_id === dbUser.user_id) {
+      return booking.listings?.student_id ?? booking.listings?.users?.user_id ?? null;
+    }
+    return booking.customer_id ?? null;
+  };
+
+  /*
+  Returns the active completion_request notification for a given booking.
+  Users will see a "Mark Job Complete" button on active bookings. If they click it, we create a 
+  completion request notification for the other party. When they see that notification, 
+  they can confirm the completion, which updates the booking status to completed.
+  */
+  const getPendingCompletionRequest = (bookingId) =>
+    completionNotifications.find(n => n.type === `completion_request:${bookingId}`);
+
+  const clearedKey = (typeKey, id) => `${typeKey}:${id}`;
+  const isCleared = (typeKey, id) => clearedItems.has(clearedKey(typeKey, id));
+
+  const persistClearedItems = (next) => {
+    setClearedItems(next);
+    if (!dbUser?.user_id) return;
+    try {
+      localStorage.setItem(
+        `clearedPastItems_${dbUser.user_id}`,
+        JSON.stringify([...next])
+      );
+    } catch {
+      // Quota exceeded / storage disabled — state still updates in-memory.
+    }
+  };
+
+  const clearPastItem = (typeKey, id) => {
+    const next = new Set(clearedItems);
+    next.add(clearedKey(typeKey, id));
+    persistClearedItems(next);
+  };
+
+  const hasSentCompletionRequest = (bookingId) =>
+    sentCompletionRequests.has(bookingId);
+
+  const persistSentCompletionRequests = (next) => {
+    setSentCompletionRequests(next);
+    if (!dbUser?.user_id) return;
+    try {
+      localStorage.setItem(
+        `sentCompletionRequests_${dbUser.user_id}`,
+        JSON.stringify([...next])
+      );
+    } catch { /* storage disabled — in-memory only */ }
+  };
+
+  const markCompletionRequestSent = (bookingId) => {
+    if (sentCompletionRequests.has(bookingId)) return;
+    const next = new Set(sentCompletionRequests);
+    next.add(bookingId);
+    persistSentCompletionRequests(next);
+  };
+
+  const openCompleteModal = (booking, isConfirming) => {
+    setCompleteModal({ booking, isConfirming });
+  };
+
+  //Either requests completion or confirms an existing completion request.
+  const submitCompleteModal = async () => {
+    if (!completeModal || !dbUser) return;
+    const { booking, isConfirming } = completeModal;
+    setError("");
+    setSuccess("");
+    setCompleting(true);
+    try {
+      const otherId = getOtherPartyId(booking);
+
+      if (isConfirming) {
+        // The other party already requested completion, finalise it.
+        const { error: statusError } = await updateBookingStatus(booking.bookings_id, "completed");
+        if (statusError) throw statusError;
+
+        // Clear every completion request notification for a booking.
+        const matching = completionNotifications.filter(
+          n => n.type === `completion_request:${booking.bookings_id}`
+        );
+        await Promise.all(matching.map(n => markNotificationCleared(n.notification_id)));
+
+        // Let the requester know the job is done.
+        if (otherId) {
+          await createNotification({
+            userId: otherId,
+            type: "booking_completed:" + booking.bookings_id,
+            message: `"${booking.listings?.title}" has been marked as completed.`,
+          });
+        }
+
+        setSuccess(`"${booking.listings?.title}" has been marked as completed.`);
+      } else {
+        // Requesting completion, notify the other party.
+        if (!otherId) {
+          throw new Error("Could not determine the other party for this booking.");
+        }
+        const { error: notifError } = await createNotification({
+          userId: otherId,
+          type: "completion_request:" + booking.bookings_id,
+          message: `${dbUser.first_name} ${dbUser.last_name} marked "${booking.listings?.title}" as complete. Confirm once you're satisfied.`,
+        });
+        if (notifError) throw notifError;
+        
+        markCompletionRequestSent(booking.bookings_id);
+        setSuccess("Completion request sent. Waiting for the other party to confirm.");
+      }
+
+      setCompleteModal(null);
+      if (role === "student") await fetchStudentData(dbUser.user_id);
+      else await fetchClientData(dbUser.user_id);
+    } catch (err) {
+      console.error("Complete action failed:", err);
+      setError("Failed to update completion status. Please try again.");
+    } finally {
+      setCompleting(false);
+    }
+  };
+
   const openCancelModal = (booking) => {
     setCancelModal(booking);
     setCancelReason("");
@@ -496,25 +661,63 @@ export default function Bookings() {
     );
   }
 
+  // Past items (completed bookings, cancelled bookings, cancelled requests).
+  const byTimeDesc = (a, b) => {
+    const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+    const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+    return tb - ta;
+  };
+
+  const pastCompletedBookings = (role === "student" ? studentBookings : clientBookings)
+    .filter(b => b.status === "completed")
+    .sort(byTimeDesc);
+  const pastCancelledBookings = (role === "student" ? studentBookings : clientBookings)
+    .filter(b => b.status === "cancelled")
+    .sort(byTimeDesc);
+  const dedupeRequests = (...lists) => {
+    const byId = new Map();
+    for (const list of lists) for (const r of list) byId.set(r.request_id, r);
+    return [...byId.values()];
+  };
+  const allRequests = role === "student"
+    ? dedupeRequests(sentRequests, receivedRequests)
+    : clientSentRequests;
+  const pastCancelledRequests = allRequests
+    .filter(r => r.status === "cancelled")
+    .sort(byTimeDesc);
+  const pastDeclinedRequests = allRequests
+    .filter(r => r.status === "declined")
+    .sort(byTimeDesc);
+
+  const clearedCount =
+    pastCancelledBookings.filter(b => isCleared("booking", b.bookings_id)).length +
+    pastCancelledRequests.filter(r => isCleared("request", r.request_id)).length + 
+    pastDeclinedRequests.filter(r => isCleared("request", r.request_id)).length;
+  const pastTotal =
+    pastCompletedBookings.length + pastCancelledBookings.length +
+    pastCancelledRequests.length + pastDeclinedRequests.length;
+  const pastCount = pastTotal - clearedCount;
+
   const studentTabs = [
     {
       key: "sent",
       label: "Sent Requests",
-      count: sentRequests.filter(
-        (r) => r.status !== "cancelled" && r.status !== "accepted"
-      ).length,
+      count: sentRequests.filter(r => r.status === "pending").length,
     },
     {
       key: "received",
       label: "Received Requests",
-      count: receivedRequests.filter((r) => r.status === "pending").length,
+      count: receivedRequests.filter(r => r.status === "pending").length,
     },
     {
       key: "active",
       label: "Active Bookings",
-      count: studentBookings.filter(
-        (b) => b.status === "confirmed" || b.status === "completed"
-      ).length,
+      count: studentBookings.filter(b => b.status === "confirmed").length,
+    },
+    { 
+      key: "history",     
+      label: "History",               
+      count: pastCount 
     },
   ];
 
@@ -522,22 +725,21 @@ export default function Bookings() {
     {
       key: "sent",
       label: "Sent Requests",
-      count: clientSentRequests.filter(
-        (r) => r.status !== "cancelled" && r.status !== "accepted"
-      ).length,
+      count: clientSentRequests.filter(r => r.status === "pending").length,
     },
     {
       key: "active",
       label: "Active Bookings",
-      count: clientBookings.filter(
-        (b) => b.status === "confirmed" || b.status === "completed"
-      ).length,
+      count: clientBookings.filter(b => b.status === "confirmed").length,
+    },
+    { 
+      key: "history",     
+      label: "History",               
+      count: pastCount 
     },
   ];
 
   const tabs = role === "student" ? studentTabs : clientTabs;
-
-  const sentList = role === "student" ? sentRequests : clientSentRequests;
   const activeBookingsList = role === "student" ? studentBookings : clientBookings;
 
   const openProfileModal = async (userId) => {
@@ -607,76 +809,47 @@ export default function Bookings() {
                 : "Booking requests you've sent"}
             </h5>
 
-            {sentList.filter(
-              (r) => r.status !== "cancelled" && r.status !== "accepted"
-            ).length === 0 ? (
+            {(role === "student" ? sentRequests : clientSentRequests).filter(r => r.status === "pending").length === 0 ? (
               <p className="text-muted">No sent requests yet.</p>
             ) : (
               <div className="row g-3">
-                {sentList
-                  .filter((r) => r.status !== "cancelled" && r.status !== "accepted")
-                  .map((req) => (
-                    <div className="col-md-6" key={req.request_id}>
-                      <div className="card h-100 shadow-sm">
-                        <div className="card-header d-flex justify-content-between align-items-center">
-                          <span className="fw-semibold">
-                            {req.listings?.title || "Listing"}
-                          </span>
-                          <StatusBadge status={req.status} />
-                        </div>
-
-                        <div className="card-body">
-                          <p className="text-muted small mb-1">
-                            To:{" "}
-                            <button
-                              type="button"
-                              className="btn btn-link p-0 align-baseline"
-                              onClick={() => openProfileModal(req.listings?.users?.user_id)}
-                            >
-                              {req.listings?.users?.first_name} {req.listings?.users?.last_name}
-                            </button>
-                          </p>
-
-                          {(() => {
-                            try {
-                              const parsed = JSON.parse(req.note || "{}");
-                              if (parsed.agreed_price != null) {
-                                return (
-                                  <p className="text-muted small mb-1">
-                                    Proposed Price: <strong>${parsed.agreed_price}</strong>
-                                  </p>
-                                );
-                              }
-                            } catch {}
-                            return null;
-                          })()}
-
-                          <p className="text-muted small mb-1">
-                            Start: {formatDate(req.requested_start_at)} &rarr;{" "}
-                            {formatDate(req.requested_end_at)}
-                          </p>
-
-                          <p className="text-muted small mb-0">
-                            Sent: {formatDate(req.created_at)}
-                          </p>
-                        </div>
-
-                        {req.status === "pending" && (
-                          <div className="card-footer">
-                            <button
-                              className="btn btn-outline-danger btn-sm w-100"
-                              disabled={!!actionLoading}
-                              onClick={() => handleAction(req.request_id, "cancelled")}
-                            >
-                              {actionLoading === req.request_id + "cancelled"
-                                ? "Cancelling..."
-                                : "Cancel Request"}
-                            </button>
-                          </div>
-                        )}
+                {(role === "student" ? sentRequests : clientSentRequests).filter(r => r.status === "pending").map(req => (
+                  <div className="col-md-6" key={req.request_id}>
+                    <div className="card h-100 shadow-sm">
+                      <div className="card-header d-flex justify-content-between align-items-center">
+                        <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
+                        <StatusBadge status={req.status} />
                       </div>
+                      <div className="card-body">
+                        <p className="text-muted small mb-1">
+                          To: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                        </p>
+                        {(() => {
+                          try {
+                            const parsed = JSON.parse(req.note || "{}");
+                            if (parsed.agreed_price != null) return (
+                              <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
+                            );
+                          } catch { /* show nothing */ }
+                          return null;
+                        })()}
+                        <p className="text-muted small mb-1">
+                          Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
+                        </p>
+                        <p className="text-muted small mb-0">
+                          Sent: {formatDate(req.created_at)}
+                        </p>
+                      </div>
+                      {req.status === "pending" && (
+                        <div className="card-footer">
+                          <button className="btn btn-outline-danger btn-sm w-100" disabled={!!actionLoading} onClick={() => handleAction(req.request_id, "cancelled")}>
+                            {actionLoading === req.request_id + "cancelled" ? "Cancelling..." : "Cancel Request"}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -686,103 +859,35 @@ export default function Bookings() {
           <div>
             <h5 className="mb-3">Hire requests sent to you</h5>
 
-            {receivedRequests.filter(
-              (r) => r.status !== "cancelled" && r.status !== "accepted"
-            ).length === 0 ? (
+            {receivedRequests.filter(r => r.status === "pending").length === 0 ? (
               <p className="text-muted">No received requests yet.</p>
             ) : (
               <div className="row g-3">
-                {receivedRequests
-                  .filter((r) => r.status !== "cancelled" && r.status !== "accepted")
-                  .map((req) => (
-                    <div className="col-md-6" key={req.request_id}>
-                      <div className="card h-100 shadow-sm">
-                        <div className="card-header d-flex justify-content-between align-items-center">
-                          <span className="fw-semibold">
-                            {req.listings?.title || "Listing"}
-                          </span>
-                          <StatusBadge status={req.status} />
-                        </div>
+                {receivedRequests.filter(r => r.status === "pending").map(req => (
+                  <div className="col-md-6" key={req.request_id}>
+                    <div className="card h-100 shadow-sm">
+                      <div className="card-header d-flex justify-content-between align-items-center">
+                        <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
+                        <StatusBadge status={req.status} />
+                      </div>
+                      <div className="card-body">
+                        <p className="text-muted small mb-1">
+                          From: {req.users?.first_name} {req.users?.last_name}
+                        </p>
+                        {req.users?.email && (
+                          <p className="text-muted small mb-1">{req.users.email}</p>
+                        )}
+                      </div>
+                      {req.status === "pending" && (
+                        <div className="card-footer d-flex gap-2">
+                          <button className="btn btn-success btn-sm flex-fill" disabled={!!actionLoading} onClick={() => openAcceptModal(req)}>
+                            {actionLoading === req.request_id + "accepted" ? "Accepting..." : "Accept"}
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm flex-fill" disabled={!!actionLoading} onClick={() => handleAction(req.request_id, "declined")}>
+                            {actionLoading === req.request_id + "declined" ? "Declining..." : "Decline"}
+                          </button>
 
-                        <div className="card-body">
-                            {req.customer_id === dbUser?.user_id ? (
-                              <p className="text-muted small mb-1">
-                                Student:{" "}
-                                <button
-                                  type="button"
-                                  className="btn btn-link p-0 align-baseline"
-                                  onClick={() => openProfileModal(req.listings?.users?.user_id)}
-                                >
-                                  {req.listings?.users?.first_name} {req.listings?.users?.last_name}
-                                </button>
-                              </p>
-                            ) : (
-                              <p className="text-muted small mb-1">
-                                Client:{" "}
-                                <button
-                                  type="button"
-                                  className="btn btn-link p-0 align-baseline"
-                                  onClick={() => openProfileModal(req.users?.user_id)}
-                                >
-                                  {req.users?.first_name} {req.users?.last_name}
-                                </button>
-                              </p>
-                            )}
-
-                          
-                          
-
-                          {req.users?.email && (
-                            <p className="text-muted small mb-1">{req.users.email}</p>
-                          )}
-
-                          {(() => {
-                            try {
-                              const parsed = JSON.parse(req.note || "{}");
-                              if (parsed.agreed_price != null) {
-                                return (
-                                  <p className="text-muted small mb-1">
-                                    Proposed Price: <strong>${parsed.agreed_price}</strong>
-                                  </p>
-                                );
-                              }
-                            } catch {}
-                            return null;
-                          })()}
-
-                          <p className="text-muted small mb-1">
-                            Start: {formatDate(req.requested_start_at)} &rarr;{" "}
-                            {formatDate(req.requested_end_at)}
-                          </p>
-
-                          <p className="text-muted small mb-0">
-                            Received: {formatDate(req.created_at)}
-                          </p>
-                        </div>
-
-                        {req.status === "pending" && (
-                          <div className="card-footer d-flex gap-2 flex-wrap">
-                            <button
-                              className="btn btn-success btn-sm flex-fill"
-                              disabled={!!actionLoading}
-                              onClick={() => openAcceptModal(req)}
-                            >
-                              {actionLoading === req.request_id + "accepted"
-                                ? "Accepting..."
-                                : "Accept"}
-                            </button>
-
-                            <button
-                              className="btn btn-outline-danger btn-sm flex-fill"
-                              disabled={!!actionLoading}
-                              onClick={() => handleAction(req.request_id, "declined")}
-                            >
-                              {actionLoading === req.request_id + "declined"
-                                ? "Declining..."
-                                : "Decline"}
-                            </button>
-
-                            {req.users?.user_id && (
+                          {req.users?.user_id && (
                               <button
                                 className="btn btn-outline-warning btn-sm"
                                 title="Report this client"
@@ -807,20 +912,17 @@ export default function Bookings() {
           <div>
             <h5 className="mb-3">Active bookings</h5>
 
-            {activeBookingsList.filter(
-              (b) => b.status === "confirmed" || b.status === "completed"
-            ).length === 0 ? (
+            {activeBookingsList.filter(b => b.status === "confirmed").length === 0 ? (
               <p className="text-muted">No active bookings yet.</p>
             ) : (
               <div className="row g-3">
-                {activeBookingsList
-                  .filter((b) => b.status === "confirmed" || b.status === "completed")
-                  .map((booking) => {
+                {(role === "student" ? studentBookings : clientBookings)
+                  .filter(b => b.status === "confirmed")
+                  .map(booking => {
+                    const pendingRequest = getPendingCompletionRequest(booking.bookings_id);
+                    const requestAlreadySent = hasSentCompletionRequest(booking.bookings_id);
                     const reviewInfo = reviewStatusByBooking[booking.bookings_id];
-                    const showReviewButton =
-                      role === "client" &&
-                      booking.customer_id === dbUser?.user_id &&
-                      reviewInfo?.canReview;
+                    const showReviewButton = role === "client" && !!reviewInfo?.canReview;
 
                     return (
                       <div className="col-md-6" key={booking.bookings_id}>
@@ -868,6 +970,11 @@ export default function Bookings() {
                             <p className="text-muted small mb-0">
                               End: {formatDate(booking.end_at)}
                             </p>
+                            {pendingRequest && (
+                              <p className="text-success small mb-0 mt-2">
+                                The other party marked this job complete — confirm to finish.
+                              </p>
+                            )}
                           </div>
 
                           <div className="card-footer d-flex gap-2 flex-wrap">
@@ -877,6 +984,30 @@ export default function Bookings() {
                             >
                               Cancel Booking
                             </button>
+
+                            {pendingRequest ? (
+                              <button
+                                className="btn btn-success btn-sm flex-fill"
+                                onClick={() => openCompleteModal(booking, true)}
+                              >
+                                Confirm Completion
+                              </button>
+                            ) : requestAlreadySent ? (
+                              <button
+                                className="btn btn-outline-secondary btn-sm flex-fill"
+                                disabled
+                                title="Waiting for the other party to confirm"
+                              >
+                                Completion Requested
+                              </button>
+                            ) : (
+                              <button
+                                className="btn btn-outline-success btn-sm flex-fill"
+                                onClick={() => openCompleteModal(booking, false)}
+                              >
+                                Mark Job Complete
+                              </button>
+                            )}
 
                             {showReviewButton && (
                               <button
@@ -928,6 +1059,232 @@ export default function Bookings() {
           </div>
         )}
 
+        {/* History (completed bookings, cancelled bookings, cancelled requests) */}
+        {activeTab === "history" && (
+          <div>
+            <h5 className="mb-3">History</h5>
+            {(() => {
+              // Cleared items are hidden permanently from the user's view.
+              const visibleCompleted = pastCompletedBookings;
+              const visibleCancelledB = pastCancelledBookings.filter(b => !isCleared("booking", b.bookings_id));
+              const visibleCancelledR = pastCancelledRequests.filter(r => !isCleared("request", r.request_id));
+              const visibleDeclinedR = pastDeclinedRequests.filter(r => !isCleared("request", r.request_id));
+              const visibleCount = visibleCompleted.length + visibleCancelledB.length + visibleCancelledR.length + visibleDeclinedR.length;
+
+              if (visibleCount === 0) {
+                return <p className="text-muted">Nothing here yet.</p>;
+              }
+
+              return (
+                <>
+                  {visibleCompleted.length > 0 && (
+                    <>
+                      <h6 className="text-muted text medium mb-2">Completed Bookings</h6>
+                      <div className="row g-3 mb-4">
+                        {visibleCompleted.map(booking => (
+                          <div className="col-md-6" key={`cb-${booking.bookings_id}`}>
+                            <div className="card h-100 shadow-sm">
+                              <div className="card-header d-flex justify-content-between align-items-center">
+                                <span className="fw-semibold">{booking.listings?.title || "Booking"}</span>
+                                <StatusBadge status={booking.status} />
+                              </div>
+                              <div className="card-body">
+                                {booking.customer_id === dbUser?.user_id ? (
+                                  <p className="text-muted small mb-1">
+                                    Student: {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
+                                  </p>
+                                ) : (
+                                  <p className="text-muted small mb-1">
+                                    Client: {booking.users?.first_name} {booking.users?.last_name}
+                                  </p>
+                                )}
+                                <p className="text-muted small mb-1">
+                                  Agreed Price: ${booking.agreed_price_amount}
+                                </p>
+                                <p className="text-muted small mb-1">
+                                  Start: {formatDate(booking.start_at)} &rarr; {formatDate(booking.end_at)}
+                                </p>
+                                {booking.updated_at && (
+                                  <p className="text-muted small mb-0">
+                                    Completed: {formatDate(booking.updated_at)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {visibleCancelledB.length > 0 && (
+                    <>
+                      <h6 className="text-muted text medium mb-2">Cancelled Bookings</h6>
+                      <div className="row g-3 mb-4">
+                        {visibleCancelledB.map(booking => (
+                          <div className="col-md-6" key={`xb-${booking.bookings_id}`}>
+                            <div className="card h-100 shadow-sm">
+                              <div className="card-header d-flex justify-content-between align-items-center">
+                                <span className="fw-semibold">{booking.listings?.title || "Booking"}</span>
+                                <div className="d-flex align-items-center gap-2">
+                                  <StatusBadge status={booking.status} />
+                                  <button
+                                    type="button"
+                                    className="btn-close"
+                                    style={{ fontSize: "0.65rem" }}
+                                    aria-label="Clear"
+                                    title="Clear from History"
+                                    onClick={() => clearPastItem("booking", booking.bookings_id)}
+                                  />
+                                </div>
+                              </div>
+                              <div className="card-body">
+                                {booking.customer_id === dbUser?.user_id ? (
+                                  <p className="text-muted small mb-1">
+                                    Student: {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
+                                  </p>
+                                ) : (
+                                  <p className="text-muted small mb-1">
+                                    Client: {booking.users?.first_name} {booking.users?.last_name}
+                                  </p>
+                                )}
+                                <p className="text-muted small mb-1">
+                                  Agreed Price: ${booking.agreed_price_amount}
+                                </p>
+                                <p className="text-muted small mb-1">
+                                  Start: {formatDate(booking.start_at)} &rarr; {formatDate(booking.end_at)}
+                                </p>
+                                {booking.updated_at && (
+                                  <p className="text-muted small mb-0">
+                                    Cancelled: {formatDate(booking.updated_at)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {visibleCancelledR.length > 0 && (
+                    <>
+                      <h6 className="text-muted text medium mb-2">Cancelled Requests</h6>
+                      <div className="row g-3 mb-4">
+                        {visibleCancelledR.map(req => (
+                          <div className="col-md-6" key={`xr-${req.request_id}`}>
+                            <div className="card h-100 shadow-sm">
+                              <div className="card-header d-flex justify-content-between align-items-center">
+                                <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
+                                <div className="d-flex align-items-center gap-2">
+                                  <StatusBadge status={req.status} />
+                                  <button
+                                    type="button"
+                                    className="btn-close"
+                                    style={{ fontSize: "0.65rem" }}
+                                    aria-label="Clear"
+                                    title="Clear from History"
+                                    onClick={() => clearPastItem("request", req.request_id)}
+                                  />
+                                </div>
+                              </div>
+                              <div className="card-body">
+                                {req.customer_id === dbUser?.user_id ? (
+                                  <p className="text-muted small mb-1">
+                                    To: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                                  </p>
+                                ) : (
+                                  <p className="text-muted small mb-1">
+                                    From: {req.users?.first_name} {req.users?.last_name}
+                                  </p>
+                                )}
+                                {(() => {
+                                  try {
+                                    const parsed = JSON.parse(req.note || "{}");
+                                    if (parsed.agreed_price != null) return (
+                                      <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
+                                    );
+                                  } catch { /* show nothing */ }
+                                  return null;
+                                })()}
+                                <p className="text-muted small mb-1">
+                                  Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
+                                </p>
+                                {req.updated_at && (
+                                  <p className="text-muted small mb-0">
+                                    Cancelled: {formatDate(req.updated_at)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {visibleDeclinedR.length > 0 && (
+                    <>
+                      <h6 className="text-muted text medium mb-2">Declined Requests</h6>
+                      <div className="row g-3 mb-4">
+                        {visibleDeclinedR.map(req => (
+                          <div className="col-md-6" key={`dr-${req.request_id}`}>
+                            <div className="card h-100 shadow-sm">
+                              <div className="card-header d-flex justify-content-between align-items-center">
+                                <span className="fw-semibold">{req.listings?.title || "Listing"}</span>
+                                <div className="d-flex align-items-center gap-2">
+                                  <StatusBadge status={req.status} />
+                                  <button
+                                    type="button"
+                                    className="btn-close"
+                                    style={{ fontSize: "0.65rem" }}
+                                    aria-label="Clear"
+                                    title="Clear from History"
+                                    onClick={() => clearPastItem("request", req.request_id)}
+                                  />
+                                </div>
+                              </div>
+                              <div className="card-body">
+                                {req.customer_id === dbUser?.user_id ? (
+                                  <p className="text-muted small mb-1">
+                                    To: {req.listings?.users?.first_name} {req.listings?.users?.last_name}
+                                  </p>
+                                ) : (
+                                  <p className="text-muted small mb-1">
+                                    From: {req.users?.first_name} {req.users?.last_name}
+                                  </p>
+                                )}
+                                {(() => {
+                                  try {
+                                    const parsed = JSON.parse(req.note || "{}");
+                                    if (parsed.agreed_price != null) return (
+                                      <p className="text-muted small mb-1">Proposed Price: <strong>${parsed.agreed_price}</strong></p>
+                                    );
+                                  } catch { /* show nothing */ }
+                                  return null;
+                                })()}
+                                <p className="text-muted small mb-1">
+                                  Start: {formatDate(req.requested_start_at)} &rarr; {formatDate(req.requested_end_at)}
+                                </p>
+                                {req.updated_at && (
+                                  <p className="text-muted small mb-0">
+                                    Declined: {formatDate(req.updated_at)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Accept Hire Request Modal */}
         {acceptModal && (
           <div
             className="modal fade show"
@@ -998,6 +1355,47 @@ export default function Bookings() {
           </div>
         )}
 
+        {/* Complete Job Modal (for both requesting and confirming) */}
+        {completeModal && (
+          <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
+            <div className="modal-dialog modal-sm modal-dialog-centered">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    {completeModal.isConfirming ? "Confirm Completion" : "Mark Job Complete"}
+                  </h5>
+                  <button type="button" className="btn-close" onClick={() => setCompleteModal(null)} />
+                </div>
+                <div className="modal-body">
+                  <p className="text-muted small mb-2">
+                    Booking: <strong>{completeModal.booking.listings?.title}</strong>
+                  </p>
+                  {completeModal.isConfirming ? (
+                    <p className="mb-0 small">
+                      The other party has marked this job as complete. Confirming will close the booking and move it to History.
+                    </p>
+                  ) : (
+                    <p className="mb-0 small">
+                      The other party will be notified. Once they confirm, the booking will move to History.
+                    </p>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-outline-secondary" onClick={() => setCompleteModal(null)}>
+                    Cancel
+                  </button>
+                  <button className="btn btn-success" disabled={completing} onClick={submitCompleteModal} >
+                    {completing
+                      ? (completeModal.isConfirming ? "Confirming..." : "Sending...")
+                      : (completeModal.isConfirming ? "Confirm" : "Mark Complete")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cancel Booking Modal */}
         {cancelModal && (
           <div
             className="modal fade show"
@@ -1056,132 +1454,7 @@ export default function Bookings() {
           </div>
         )}
 
-        {profileModal && (
-                  <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}>
-                    <div className="modal-dialog modal-dialog-centered modal-lg">
-                      <div className="modal-content">
-                        <div className="modal-header">
-                          <h5 className="modal-title">
-                            Profile View
-                          </h5>
-                          <button type="button" className="btn-close" onClick={() => setProfileModal(null)} />
-                        </div>
-        
-                        <div className="modal-body">
-                          <div className="text-center mb-3">
-                            <div
-                              className="align-items-center justify-content-center mx-auto mb-2"
-                              style={{ width: "60px", height: "60px", fontSize: "1.5rem" }}
-                            >
-                              <img
-                                src={
-                                  profileModal?.icon_url
-                                    ? getIcon(profileModal.icon_url).data.publicUrl
-                                    : "https://placehold.co/60x60"
-                                }
-                                alt="Profile"
-                                className="rounded-circle mb-2"
-                                width="60"
-                                height="60"
-                                style={{ objectFit: "cover", cursor: "pointer" }}
-                                onClick={() =>
-                                  setImageModal(
-                                    profileModal?.icon_url
-                                      ? getIcon(profileModal.icon_url).data.publicUrl
-                                      : "https://placehold.co/300x300"
-                                  )
-                                }
-                              />
-                            </div>
-        
-                            <h5 className="mb-0">
-                              {profileModal?.first_name} {profileModal?.last_name}
-                            </h5>
-        
-                            <p className="text-muted small mb-0">{profileModal?.email}</p>
-                          </div>
-        
-                          <div className="mb-3">
-                            <h6 className="fw-bold">About</h6>
-                            <p className="text-muted mb-0">{profileModal?.bio || "No bio provided yet."}</p>
-                          </div>
-        
-                          <div className="mb-3">
-                            <h6 className="fw-bold">Contact</h6>
-                            <p className="mb-1">
-                              <i className="bi bi-envelope me-2 text-primary"></i>
-                              {profileModal?.email}
-                            </p>
-                            <p className="mb-0">
-                              <i className="bi bi-telephone me-2 text-primary"></i>
-                              {profileModal?.phone || "Not added"}
-                            </p>
-                          </div>
-        
-                          <div className="mb-4">
-                            <h6 className="fw-bold mb-2">Reviews</h6>
-                            <p className="mb-0">
-                              Average Rating: {profileModal?.reviewSummary?.avg || 0} / 5
-                            </p>
-                            <p className="mb-0">
-                              Total Reviews: {profileModal?.reviewSummary?.count || 0}
-                            </p>
-        
-                            <div className="mt-2">
-                              <button
-                                className="btn btn-link p-0 text-decoration-none"
-                                onClick={() => navigate(`/reviews?studentId=${profileModal.user_id}`)}
-                              >
-                                View all reviews →
-                              </button>
-                            </div>
-                          </div>
-        
-                          <div className="mb-3">
-                            <h6 className="fw-bold">Active Listings</h6>
-        
-                            {profileModal?.activeListings?.length > 0 ? (
-                              <div className="d-flex flex-column gap-2">
-                                {profileModal.activeListings.map((item) => (
-                                  <button
-                                    key={item.listing_id}
-                                    type="button"
-                                    className="border rounded p-2 text-start bg-white w-100"
-                                    onClick={() => {
-                                      setProfileModal(null);
-                                    }}
-                                  >
-                                    <div className="fw-semibold">{item.title}</div>
-                                    <div className="small text-muted">
-                                      ${item.price_amount} ({item.pricing_type}) ·{" "}
-                                      {item.location_text || "Remote"}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-muted mb-0">No active listings right now.</p>
-                            )}
-                          </div>
-                        </div>
-        
-                        <div className="modal-footer">
-                          <button
-                            className="btn btn-outline-danger me-auto"
-                            onClick={() => openReportModal({ type: "user", target: profileModal })}
-                          >
-                            Report User
-                          </button>
-        
-                          <button className="btn btn-outline-secondary" onClick={() => setProfileModal(null)}>
-                            Close
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
+        {/* Report Booking Modal */}
         {reportModal && (
           <div
             className="modal d-block"
