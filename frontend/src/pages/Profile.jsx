@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import Navbar from "../components/Navbar";
 import { Link } from "react-router-dom";
+import { InfoCircle } from "react-bootstrap-icons";
 import {
   getActiveSkills,
   getProfileSkills,
@@ -294,15 +295,37 @@ export default function Profile() {
           <div className="col-lg-4">
             <div className="card shadow-sm mb-3">
               <div className="card-body text-center">
-                <img
-                  src={previewUrl || "https://placehold.co/140x140"}
-                  alt="Profile"
-                  className="rounded-circle mb-3"
-                  width="140"
-                  height="140"
-                  style={{ objectFit: "cover" }}
-                />
-
+                {previewUrl ? (
+                  <img
+                    src={previewUrl}
+                    alt="Profile"
+                    className="rounded-circle mb-3"
+                    width="300"
+                    height="300"
+                    style={{ objectFit: "cover" }}
+                  />
+                ) : (
+                  <div
+                    className="rounded-circle mb-3 mx-auto d-flex align-items-center justify-content-center"
+                    style={{
+                      width: "300px",
+                      height: "300px",
+                      backgroundColor: "#6ea8fe",
+                      color: "white",
+                      fontSize: "48px",
+                      fontWeight: "600",
+                    }}
+                  >
+                    {form.name
+                      ? form.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase()
+                      : "U"}
+                  </div>
+                )}
                 <div className="mb-3 text-start">
                   <label className="form-label fw-semibold">
                     Upload Profile Photo{" "}
@@ -424,11 +447,16 @@ export default function Profile() {
                 )}
 
                 <form onSubmit={handleSave}>
-                  <div className="row g-20">
+                  <div className="row g-4">
                     <div className="col-md-6">
-                      <label className="form-label">
+                      <label className="form-label fw-semibold mb-2">
                         Full Name{" "}
-                        <span title="Use your real name, like on your drivers license." style={{ cursor: "help" }}>?</span>
+                        <InfoCircle
+                          size={12}
+                          className="ms-1 text-muted"
+                          title="Use your real name, like on your drivers license."
+                          style={{ cursor: "help" }}
+                        />
                       </label>
                       <input
                         type="text"
@@ -440,9 +468,15 @@ export default function Profile() {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label">
+                      <label className="form-label fw-semibold mb-2">
                         Email{" "}
-                        <span title="Your email is tied to your Auth0 login and cannot be changed here. Contact an admin if you need to update it." style={{ cursor: "help" }}>*</span>
+
+                        <InfoCircle
+                            size={12}
+                            className="ms-1 text-muted"
+                            title="Your email is tied to your Auth0 login and cannot be changed here. Contact an admin if you need to update it."
+                            style={{ cursor: "help" }}
+                          />
                       </label>
                       <input
                         type="email"
@@ -454,7 +488,7 @@ export default function Profile() {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label">
+                      <label className="form-label fw-semibold mb-2">
                         Phone Number
                       </label>
                       <input
@@ -470,9 +504,14 @@ export default function Profile() {
                     </div>
 
                     <div className="col-12">
-                      <label className="form-label">
+                      <label className="form-label fw-semibold mb-2">
                         Bio{" "}
-                        <span title="Be detailed about who you are" style={{ cursor: "help" }}>?</span>
+                        <InfoCircle
+                          size={12}
+                          className="ms-1 text-muted"
+                          title="Be detailed about who you are"
+                          style={{ cursor: "help" }}
+                        />
                       </label>
                       <textarea
                         name="bio"
