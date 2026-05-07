@@ -110,8 +110,8 @@ export default function Navbar() {
                 src={iconUrl}
                 alt="Profile"
                 style={{
-                  width: "40px",
-                  height: "40px",
+                  width: "60px",
+                  height: "60px",
                   borderRadius: "50%",
                   objectFit: "cover",
                   cursor: "pointer",
