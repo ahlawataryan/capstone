@@ -1464,29 +1464,29 @@ export default function Jobs() {
 
                 <div className="modal-body">
                   <div className="text-center mb-3">
-                    <div
-                      className="align-items-center justify-content-center mx-auto mb-2"
-                      style={{ width: "60px", height: "60px", fontSize: "1.5rem" }}
-                    >
+                    <div className="text-center mb-3">
                       {profileModal?.icon_url ? (
                         <img
                           src={getIcon(profileModal.icon_url).data.publicUrl}
                           alt="Profile"
-                          className="rounded-circle mb-2"
-                          width="60"
-                          height="60"
-                          style={{ objectFit: "cover", cursor: "pointer" }}
+                          className="rounded-circle mb-3 d-block mx-auto"
+                          width="150"
+                          height="150"
+                          style={{
+                            objectFit: "cover",
+                            cursor: "pointer",
+                          }}
                           onClick={() =>
                             setImageModal(getIcon(profileModal.icon_url).data.publicUrl)
                           }
                         />
                       ) : (
                         <div
-                          className="rounded-circle mb-2 d-flex align-items-center justify-content-center bg-primary-subtle text-primary"
+                          className="rounded-circle mb-3 mx-auto d-flex align-items-center justify-content-center bg-primary-subtle text-primary"
                           style={{
-                            width: "60px",
-                            height: "60px",
-                            fontSize: "20px",
+                            width: "150px",
+                            height: "150px",
+                            fontSize: "40px",
                             fontWeight: "600",
                             cursor: "pointer",
                           }}
