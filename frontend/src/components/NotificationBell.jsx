@@ -8,8 +8,6 @@ const TYPE_LABELS = {
   booking_accepted: "Booking accepted",
   booking_declined:"Booking declined",
   booking_cancelled:"Booking cancelled",
-  completion_request: "Completion request",
-  booking_completed: "Job completed",
   review:          "New review",
   payment:         "Payment update",
 };
@@ -79,12 +77,7 @@ export default function NotificationBell({ userId }) {
 
   const handleNotificationClick = (n) => {
     const [type, id] = (n.type || "").split(":");
-    if (type !== "completion_request") {
-      markNotificationCleared(n.notification_id);
-      setNotifications((prev) =>
-        prev.filter((notif) => notif.notification_id !== n.notification_id)
-      );
-    }
+    markNotificationCleared(n.notification_id);
     
     if (type === "message" && id) {
       navigate(`/messages?conversationId=${id}`, { state: { clearNotification: n.notification_id } });
@@ -113,16 +106,6 @@ export default function NotificationBell({ userId }) {
     
     if (type === "booking_request" && id) {
       navigate(`/bookings?bookingId=${id}&tab=received`);
-      return;
-    }
-
-    if (type === "completion_request" && id) {
-      navigate(`/bookings?bookingId=${id}`);
-      return;
-    }
-
-    if (type === "booking_completed" && id) {
-      navigate(`/bookings?bookingId=${id}`, { state: { clearNotification: n.notification_id } });
       return;
     }
     
@@ -206,7 +189,7 @@ export default function NotificationBell({ userId }) {
         <div
           style={{
             position: "absolute",
-            right: 0,
+            right: -50,
             top: "calc(100% + 8px)",
             width: "320px",
             backgroundColor: "#fff",
