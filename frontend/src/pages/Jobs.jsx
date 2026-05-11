@@ -2,6 +2,9 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import Navbar from "../components/Navbar";
+import Button from 'react-bootstrap/Button';
+import ButtonGroup from 'react-bootstrap/ButtonGroup';
+import ButtonToolbar from 'react-bootstrap/ButtonToolbar';
 import {
   getUserByEmail,
   getUserById,
@@ -110,6 +113,8 @@ export default function Jobs() {
 
   const [profileModal, setProfileModal] = useState(null);
 
+  const [imageModal, setImageModal] = useState(null);
+
   const [newListing, setNewListing] = useState({
     title: "",
     description: "",
@@ -127,6 +132,7 @@ export default function Jobs() {
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [reviewSummaries, setReviewSummaries] = useState({});
 
   useEffect(() => {
     if (user?.email) {
@@ -180,7 +186,27 @@ export default function Jobs() {
   const fetchListings = async () => {
     const { data, error } = await getActiveListings();
     if (error) throw error;
-    setListings(data || []);
+
+    const listingsData = data || [];
+    setListings(listingsData);
+
+    const summaries = {};
+
+    await Promise.all(
+      listingsData.map(async (listing) => {
+        const { data: summary, error: summaryError } =
+          await getReviewSummary(listing.student_id);
+
+        if (!summaryError) {
+          summaries[listing.student_id] = summary || {
+            avg: 0,
+            count: 0,
+          };
+        }
+      })
+    );
+
+    setReviewSummaries(summaries);
   };
 
   const fetchMyListings = async (userData) => {
@@ -640,6 +666,7 @@ export default function Jobs() {
       : []),
   ];
 
+
   return (
     <>
       <Navbar />
@@ -690,7 +717,7 @@ export default function Jobs() {
                 <h5 className="card-title mb-3">Filter Jobs</h5>
                 <div className="row g-3">
                   <div className="col-md-4">
-                    <label className="form-label">Skill</label>
+                    <label className="form-label fw-semibold mb-2">Skill</label>
                     <select
                       className="form-select"
                       value={skillFilter}
@@ -706,9 +733,9 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-md-4">
-                    <label className="form-label">Location</label>
+                    <label className="form-label fw-semibold mb-2">Location</label>
                     <input
-                      className="form-control"
+                      className="form-control fw-semibold"
                       placeholder="e.g. Milwaukee"
                       value={locationFilter}
                       onChange={(e) => setLocationFilter(e.target.value)}
@@ -716,7 +743,7 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-md-4">
-                    <label className="form-label">
+                    <label className="form-label fw-semibold mb-2">
                       Maximum Pay ($)
                     </label>
                     <input
@@ -729,7 +756,7 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-md-4">
-                    <label className="form-label">
+                    <label className="form-label fw-semibold mb-2">
                       Posted After
                     </label>
                     <input
@@ -741,7 +768,7 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-md-4">
-                    <label className="form-label">
+                    <label className="form-label fw-semibold mb-2">
                       Pricing Type
                     </label>
                     <select
@@ -775,47 +802,67 @@ export default function Jobs() {
                   <div className="col-md-6" key={listing.listing_id}>
                     <div className="card h-100 shadow-sm">
                       <div className="card-header">
-                        <h5 className="card-title mb-0">{listing.title}</h5>
+                        <h5 className="card-title fs-3 mb-0" style={{ color: "#0d6efd" }}>{listing.title}</h5>
                       </div>
 
                       <div className="card-body">
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          <img
-                            src={
-                              listing.users?.icon_url
-                                ? getIcon(listing.users.icon_url).data.publicUrl
-                                : "https://placehold.co/40x40"
-                            }
-                            alt="Profile"
-                            className="rounded-circle"
-                            width="40"
-                            height="40"
-                            style={{ objectFit: "cover" }}
-                          />
-                          <p className="text-muted small mb-0">
+                        <div className="d-flex align-items-center gap-2 mb-4">
+                          <p className="fs-4 mb-0">
                             Posted by{" "}
                             <button
                               type="button"
-                              className="btn btn-link p-0 align-baseline"
+                              className="btn p-0 fs-4 align-baseline"
                               onClick={() => openProfileModal(listing)}
+                              style={{ fontWeight: "bold" }}
                             >
                               {listing.users?.first_name} {listing.users?.last_name}
                             </button>
                           </p>
+                          {listing.users?.icon_url ? (
+                            <img
+                              type="button"
+                              onClick={() => openProfileModal(listing)}
+                              src={getIcon(listing.users.icon_url).data.publicUrl}
+                              alt="Profile"
+                              className="rounded-circle ms-auto"
+                              width="100"
+                              height="100"
+                              style={{ objectFit: "cover", cursor: "pointer" }}
+                            />
+                          ) : (
+                            <div
+                              type="button"
+                              onClick={() => openProfileModal(listing)}
+                              className="rounded-circle ms-auto d-flex align-items-center justify-content-center bg-primary-subtle"
+                              style={{
+                                width: "100px",
+                                height: "100px",
+                                fontSize: "28px",
+                                fontWeight: "600",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {`${listing.users?.first_name?.[0] || ""}${
+                                listing.users?.last_name?.[0] || ""
+                              }`.toUpperCase()}
+                            </div>
+                          )}
+                          
                         </div>
 
-                        {listing.description && <p className="small mb-2">{listing.description}</p>}
+                        {listing.description && <p className="mb-2 fw-bold" style={{ color:"#0d6dfd91" }}>{listing.description}</p>}
 
-                        <p className="text-muted mb-1">
-                          Location: {listing.location_text || "Remote"}
+                        <p className="mb-2">
+                          <span className="fw-semibold">Location: </span> {listing.location_text || "Remote"}
                         </p>
 
-                        <p className="text-muted mb-1">
-                          Rate: ${listing.price_amount} ({listing.pricing_type})
+                        <p className="mb-2">
+                          <span className="fw-semibold">Rate: </span>${listing.price_amount} ({listing.pricing_type})
                         </p>
 
-                        <p className="text-muted mb-2">
-                          Date: {new Date(listing.created_at).toLocaleDateString()}
+                        <p className="mb-2">
+                          <span className="fw-semibold">Date:</span>{" "}
+                          {new Date(listing.created_at).toLocaleDateString()}
                         </p>
 
                         <div>
@@ -828,33 +875,51 @@ export default function Jobs() {
                       </div>
 
                       <div className="card-footer d-flex gap-2 flex-wrap">
-                        <button
-                          className="btn btn-primary btn-sm flex-fill"
-                          onClick={() => openHireModal(listing)}
-                        >
-                          Hire
-                        </button>
+                        
 
-                        <button
-                          className="btn btn-outline-secondary btn-sm flex-fill"
-                          onClick={() => openMessageModal(listing)}
-                        >
-                          Message
-                        </button>
+                        <ButtonToolbar className="w-100" aria-label="Toolbar with button groups">
+                          <ButtonGroup className="w-50 me-2" aria-label="First group">
+                            <button
+                              className="btn btn-primary flex-fill"
+                              onClick={() => openHireModal(listing)}
+                            >
+                              Hire
+                            </button>
+                          </ButtonGroup>
 
-                        <button
-                          className="btn btn-outline-primary btn-sm flex-fill"
-                          onClick={() => navigate(`/reviews?studentId=${listing.student_id}`)}
-                        >
-                          Reviews
-                        </button>
+                          <ButtonGroup className="ms-auto" aria-label="Second group">
+                            <button
+                              className="btn bg-primary-subtle px-4"
+                              onClick={() => navigate(`/reviews?studentId=${listing.student_id}`)}
+                            >
+                              <i className="bi bi-star-fill me-2"
+                              style={{
+                                color: "#156fe6"
+                              }}></i>
 
-                        <button
-                          className="btn btn-outline-danger btn-sm flex-fill"
-                          onClick={() => openListingReportModal(listing)}
-                        >
-                          Report Listing
-                        </button>
+                              {reviewSummaries[listing.student_id]?.avg?.toFixed(1) || "0.0"} (
+                              {reviewSummaries[listing.student_id]?.count || 0})
+                            </button>
+                            <button
+                              className="btn px-5"
+                              style={{
+                                backgroundColor: "#458ffd",
+                                color: "white",
+                                border: "none",
+                              }}
+                              onClick={() => openMessageModal(listing)}
+                            >
+                              <i className="bi bi-chat-dots"></i>
+                            </button>
+                          </ButtonGroup>
+                          <button
+                            className="btn btn-outline-danger btn-sm ms-1 px-3"
+                            onClick={() => openListingReportModal(listing)}
+                          >
+                            <i className="bi bi-flag"></i>
+                          </button>
+                        </ButtonToolbar>
+
                       </div>
                     </div>
                   </div>
@@ -893,13 +958,13 @@ export default function Jobs() {
                           {listing.description && (
                             <p className="small text-muted mb-2">{listing.description}</p>
                           )}
-                          <p className="text-muted small mb-1">
+                          <p className="text-muted small mb-1 fw-semibold">
                             Location: {listing.location_text || "Remote"}
                           </p>
-                          <p className="text-muted small mb-1">
+                          <p className="text-muted small mb-1 fw-semibold">
                             Rate: ${listing.price_amount} ({listing.pricing_type})
                           </p>
-                          <p className="text-muted small mb-2">
+                          <p className="text-muted small mb-1 fw-semibold">
                             Posted: {new Date(listing.created_at).toLocaleDateString()}
                           </p>
 
@@ -974,17 +1039,17 @@ export default function Jobs() {
                           <h5 className="card-title mb-0">{listing?.title}</h5>
                         </div>
                         <div className="card-body">
-                          <p className="text-muted small mb-1">
+                          <p className="text-muted small mb-1 fw-semibold">
                             Student: {listing?.users?.first_name} {listing?.users?.last_name}
                           </p>
                           {listing?.description && <p className="small mb-2">{listing.description}</p>}
-                          <p className="text-muted small mb-1">
+                          <p className="text-muted small mb-1 fw-semibold">
                             Location: {listing?.location_text || "Remote"}
                           </p>
-                          <p className="text-muted small mb-1">
+                          <p className="text-muted small mb-1 fw-semibold">
                             Agreed Price: ${booking.agreed_price_amount}
                           </p>
-                          <p className="text-muted small mb-1">
+                          <p className="text-muted small mb-1 fw-semibold">
                             Start: {new Date(booking.start_at).toLocaleDateString()} →{" "}
                             {new Date(booking.end_at).toLocaleDateString()}
                           </p>
@@ -1392,18 +1457,45 @@ export default function Jobs() {
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">
-                    {profileModal.first_name} {profileModal.last_name}
+                    Profile View
                   </h5>
                   <button type="button" className="btn-close" onClick={() => setProfileModal(null)} />
                 </div>
 
                 <div className="modal-body">
                   <div className="text-center mb-3">
-                    <div
-                      className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center mx-auto mb-2"
-                      style={{ width: "60px", height: "60px", fontSize: "1.5rem" }}
-                    >
-                      {profileModal?.first_name?.[0]}
+                    <div className="text-center mb-3">
+                      {profileModal?.icon_url ? (
+                        <img
+                          src={getIcon(profileModal.icon_url).data.publicUrl}
+                          alt="Profile"
+                          className="rounded-circle mb-3 d-block mx-auto"
+                          width="150"
+                          height="150"
+                          style={{
+                            objectFit: "cover",
+                            cursor: "pointer",
+                          }}
+                          onClick={() =>
+                            setImageModal(getIcon(profileModal.icon_url).data.publicUrl)
+                          }
+                        />
+                      ) : (
+                        <div
+                          className="rounded-circle mb-3 mx-auto d-flex align-items-center justify-content-center bg-primary-subtle text-primary"
+                          style={{
+                            width: "150px",
+                            height: "150px",
+                            fontSize: "40px",
+                            fontWeight: "600",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {`${profileModal?.first_name?.[0] || ""}${
+                            profileModal?.last_name?.[0] || ""
+                          }`.toUpperCase()}
+                        </div>
+                      )}
                     </div>
 
                     <h5 className="mb-0">
@@ -1493,6 +1585,24 @@ export default function Jobs() {
                     Close
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {imageModal && (
+          <div
+            className="modal fade show"
+            style={{ display: "block", backgroundColor: "rgba(0,0,0,0.8)" }}
+            onClick={() => setImageModal(null)}
+          >
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content bg-transparent border-0 text-center">
+                <img
+                  src={imageModal}
+                  alt="Enlarged"
+                  style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: "10px" }}
+                />
               </div>
             </div>
           </div>

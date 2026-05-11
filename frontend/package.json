@@ -28,6 +28,7 @@
     "node": "^24.15.0",
     "react": "^19.2.0",
     "react-bootstrap": "^2.10.10",
+    "react-bootstrap-icons": "^1.11.6",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.0",
     "supabase": "^2.76.15"

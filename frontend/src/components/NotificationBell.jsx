@@ -8,8 +8,6 @@ const TYPE_LABELS = {
   booking_accepted: "Booking accepted",
   booking_declined:"Booking declined",
   booking_cancelled:"Booking cancelled",
-  completion_request: "Completion request",
-  booking_completed: "Job completed",
   review:          "New review",
   payment:         "Payment update",
 };
@@ -79,12 +77,7 @@ export default function NotificationBell({ userId }) {
 
   const handleNotificationClick = (n) => {
     const [type, id] = (n.type || "").split(":");
-    if (type !== "completion_request") {
-      markNotificationCleared(n.notification_id);
-      setNotifications((prev) =>
-        prev.filter((notif) => notif.notification_id !== n.notification_id)
-      );
-    }
+    markNotificationCleared(n.notification_id);
     
     if (type === "message" && id) {
       navigate(`/messages?conversationId=${id}`, { state: { clearNotification: n.notification_id } });
@@ -113,16 +106,6 @@ export default function NotificationBell({ userId }) {
     
     if (type === "booking_request" && id) {
       navigate(`/bookings?bookingId=${id}&tab=received`);
-      return;
-    }
-
-    if (type === "completion_request" && id) {
-      navigate(`/bookings?bookingId=${id}`);
-      return;
-    }
-
-    if (type === "booking_completed" && id) {
-      navigate(`/bookings?bookingId=${id}`, { state: { clearNotification: n.notification_id } });
       return;
     }
     
@@ -154,20 +137,23 @@ export default function NotificationBell({ userId }) {
           lineHeight: 1,
         }}
         onClick={() => setOpen((prev) => !prev)}
-        aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+        aria-label="Notifications"
         title="Notifications"
       >
-        {/* Bell icon */}
         <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
+          width="24"
+          height="24"
           fill="currentColor"
           viewBox="0 0 16 16"
-          style={{ display: "block" }}
         >
           <path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zM8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.921L8 1.918zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 1 1 1.99 0A5.002 5.002 0 0 1 13 6c0 .88.32 4.2 1.22 6z" />
         </svg>
+
+        {unreadCount > 0 && (
+          <span>...</span>
+        )}
+      </button>
+
 
         {/* Red badge — only shown when there are notifications */}
         {unreadCount > 0 && (
@@ -195,14 +181,13 @@ export default function NotificationBell({ userId }) {
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
-      </button>
 
       {/* Dropdown */}
       {open && (
         <div
           style={{
             position: "absolute",
-            right: 0,
+            right: -50,
             top: "calc(100% + 8px)",
             width: "320px",
             backgroundColor: "#fff",

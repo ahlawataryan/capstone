@@ -11,11 +11,37 @@ import {
 import Carousel from 'react-bootstrap/Carousel';
 import slide1 from '../../assets/slide1.jpg';
 import slide2 from '../../assets/slide2.jpg';
+import slide3 from '../../assets/slide3.jpg';
+import Button from 'react-bootstrap/Button';
 
 /*
 Student dashboard. The most complicated one
 Includes snapshots of reviews and links to other views
 */
+
+function VariantsExample() {
+  return (
+    <>
+      <style type="text/css">
+        {`
+    .btn-flat {
+      background-color: purple;
+      color: white;
+    }
+
+    .btn-xxl {
+      padding: 1rem 1.5rem;
+      font-size: 1.5rem;
+    }
+    `}
+      </style>
+
+      <Button variant="flat" size="xxl">
+        flat button
+      </Button>
+    </>
+  );
+}
 
 export default function StudentDashboard() {
   const { user } = useAuth0();
@@ -72,31 +98,103 @@ export default function StudentDashboard() {
 
       <Carousel>
       <Carousel.Item>
-        <img src={slide1} alt="First slide" className="d-block w-100 text-black bg-white" style={{ height: "300px", objectFit: "cover" }}/>
-        <Carousel.Caption>
-          <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
-            <h3>Connect with real people</h3>
-          </Link>
-          <p>Navigate to Jobs to find and post work to connect to real people.</p>
-        </Carousel.Caption>
+        <div className="position-relative">
+          <img
+            src={slide1}
+            alt="First slide"
+            className="d-block w-100"
+            style={{
+              height: "300px",
+              objectFit: "cover",
+            }}
+          />
+
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0,0,0,0.35)",
+            }}
+          ></div>
+
+          <Carousel.Caption>
+            <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
+              <h3 className="fs-2 fw-bold">
+                Connect with real people
+              </h3>
+            </Link>
+
+            <p className="fs-5">
+              Navigate to Jobs to find and post work to connect to real people.
+            </p>
+          </Carousel.Caption>
+        </div>
       </Carousel.Item>
       <Carousel.Item>
-            <img src={slide2} alt="Second slide" className="d-block w-100" style={{ height: "300px", objectFit: "cover" }}/>
-            <Carousel.Caption>
-              <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
-                <h3>Find your skills</h3>
-              </Link>
-              <p>Navigate to profile highlight your skills and interests</p>
-            </Carousel.Caption>
-          </Carousel.Item>
+        <div className="position-relative">
+          <img
+            src={slide2}
+            alt="Second slide"
+            className="d-block w-100"
+            style={{
+              height: "300px",
+              objectFit: "cover",
+            }}
+          />
+
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0,0,0,0.35)",
+            }}
+          ></div>
+
+          <Carousel.Caption>
+            <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
+              <h3 className="fs-2 fw-bold">
+                Find your skills
+              </h3>
+            </Link>
+
+            <p className="fs-5">
+              Navigate to profile highlight your skills and interests.
+            </p>
+          </Carousel.Caption>
+        </div>
+      </Carousel.Item>
       <Carousel.Item>
-        <img src={slide1} alt="First slide" className="d-block w-100" style={{ height: "300px", objectFit: "cover" }}/>
-        <Carousel.Caption>
-          <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
-            <h3>Gain real-world experience</h3>
-          </Link>
-          <p>By accepting job requests, students have access to new opportunities they've never had before</p>
-        </Carousel.Caption>
+        <div className="position-relative">
+          <img
+            src={slide3}
+            alt="Third slide"
+            className="d-block w-100"
+            style={{
+              height: "300px",
+              objectFit: "cover",
+            }}
+          />
+
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0,0,0,0.35)",
+            }}
+          ></div>
+
+          <Carousel.Caption>
+            <Link to="/profile" style={{ color: "white", textDecoration: "none" }}>
+              <h3 className="fs-2 fw-bold">
+                Gain real-world experience
+              </h3>
+            </Link>
+
+            <p className="fs-5">
+              By accepting job requests, students have access to new opportunities they've never had before.
+            </p>
+          </Carousel.Caption>
+        </div>
       </Carousel.Item>
       </Carousel>
 

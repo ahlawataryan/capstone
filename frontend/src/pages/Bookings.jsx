@@ -21,6 +21,10 @@ import {
   createListingReport,
   createUserReport,
   getReviewByReviewerAndStudent,
+  getUserById,
+  getReviewSummary,
+  getListingsByStudent,
+getIcon,
 } from "../services/supabaseapi";
 
 /*
@@ -89,6 +93,9 @@ export default function Bookings() {
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const [profileModal, setProfileModal] = useState(null);
+  const [imageModal, setImageModal] = useState(null);
 
   useEffect(() => {
     if (user?.email) fetchData();
@@ -735,6 +742,39 @@ export default function Bookings() {
   const tabs = role === "student" ? studentTabs : clientTabs;
   const activeBookingsList = role === "student" ? studentBookings : clientBookings;
 
+  const openProfileModal = async (userId) => {
+    if (!userId) return;
+
+    try {
+      const [
+        { data: userData, error: userError },
+        { data: summaryData, error: summaryError },
+        { data: listingsData, error: listingsError },
+      ] = await Promise.all([
+        getUserById(userId),
+        getReviewSummary(userId),
+        getListingsByStudent(userId),
+      ]);
+
+      if (userError) throw userError;
+      if (summaryError) throw summaryError;
+      if (listingsError) throw listingsError;
+
+      const activeListings = (listingsData || []).filter(
+        (item) => item.status === "active"
+      );
+
+      setProfileModal({
+        ...userData,
+        reviewSummary: summaryData,
+        activeListings,
+      });
+    } catch (err) {
+      console.error("Failed to load profile:", err);
+      setError("Failed to load profile.");
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -897,12 +937,25 @@ export default function Bookings() {
                           <div className="card-body">
                             {booking.customer_id === dbUser?.user_id ? (
                               <p className="text-muted small mb-1">
-                                Student: {booking.listings?.users?.first_name}{" "}
-                                {booking.listings?.users?.last_name}
+                                Student:{" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-link p-0 align-baseline"
+                                  onClick={() => openProfileModal(booking.listings?.users?.user_id)}
+                                >
+                                  {booking.listings?.users?.first_name} {booking.listings?.users?.last_name}
+                                </button>
                               </p>
                             ) : (
                               <p className="text-muted small mb-1">
-                                Client: {booking.users?.first_name} {booking.users?.last_name}
+                                Client:{" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-link p-0 align-baseline"
+                                  onClick={() => openProfileModal(booking.users?.user_id)}
+                                >
+                                  {booking.users?.first_name} {booking.users?.last_name}
+                                </button>
                               </p>
                             )}
 
@@ -1406,7 +1459,7 @@ export default function Bookings() {
           <div
             className="modal d-block"
             tabIndex="-1"
-            style={{ background: "rgba(0,0,0,0.5)" }}
+            style={{ background: "$pink-500" }}
           >
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content border-0 rounded-4">
